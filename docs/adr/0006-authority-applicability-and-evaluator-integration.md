@@ -3,6 +3,12 @@
 - Status: Accepted
 - Date: 2026-09-18
 - Amends: ADR 0004 and ADR 0005
+- Amended by: ADR 0007
+
+ADR 0007 closes the Subject/Principal holder-binding gap, renames the opaque
+request `Authority` to `AuthorityContext`, and advances the evaluator and
+decision schemas. References below to the old request name and three-argument
+evaluator describe this ADR's historical boundary.
 
 ## Problem
 
@@ -160,15 +166,17 @@ gate:
 Thus a matching `PERMIT` or `APPROVAL_REQUIRED` Rule cannot widen authority.
 A matching policy `DENY` remains `DENY` when authority is applicable.
 
-`AuthorizationRequest.authority` remains an opaque, optional request value for
-the closed ADR-0004 `AUTHORITY` policy namespace. It is not evidence of
-delegation validity and does not satisfy the execution-authority gate.
+The value now named `AuthorizationRequest.authority_context` remains an opaque,
+optional request value for the closed ADR-0004 `AUTHORITY` policy namespace.
+It is not evidence of delegation validity and does not satisfy any execution-
+authority gate.
 
 ## Request Binding and Decision Evidence
 
 Every `DecisionEvidence` contains `sha256_digest(request)`. This binds the
 Decision to the complete canonical request, including Subject, Action,
-Resource, Context, and opaque request Authority. A Decision for request A is
+Resource, Context, and what ADR 0007 now names `AuthorityContext`. A Decision
+for request A is
 therefore not content-equivalent evidence for request B.
 
 When a `VerifiedAuthority` is supplied, `DecisionEvidence` also contains the
@@ -178,7 +186,7 @@ The nested result binds the request digest and validated-authority digest, and
 construction rejects inconsistent evidence.
 
 Non-deny `Decision` construction requires an `APPLICABLE` result. Opaque
-request Authority presence alone is never sufficient.
+`AuthorityContext` presence alone is never sufficient.
 
 No decision identifier, timestamp, nonce, or Python `hash()` value is used.
 
@@ -212,10 +220,10 @@ assigned new field or semantic meaning.
 - Applicability and policy evidence remain independently inspectable.
 - `VerifiedAuthority` still relies on caller-supplied logical time and
   revocation state and proves no cryptographic authenticity or trusted root.
-- Version 1 does not bind `Principal` to `Subject`; no authenticated mapping
-  between those semantic identifiers has been defined.
-- Opaque request-Authority attributes remain policy inputs but are not validated
-  delegation claims.
+- ADR 0007 now validates a caller-supplied `SubjectPrincipalBinding`; the
+  authenticity of that binding remains outside the core.
+- Opaque `AuthorityContext` attributes remain policy inputs but are not
+  validated delegation claims.
 - A caller must revalidate authority against the appropriate current supplied
   state before evaluation; this library does not establish state freshness.
 - No approval execution, signature, key management, API, persistence, external

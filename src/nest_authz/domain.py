@@ -80,6 +80,14 @@ class AuthorityApplicabilityStatus(Enum):
     TYPE_ERROR = "TYPE_ERROR"
 
 
+class SubjectAuthorityBindingStatus(Enum):
+    """The result of binding a request Subject to an authority holder."""
+
+    BOUND = "BOUND"
+    SUBJECT_MISMATCH = "SUBJECT_MISMATCH"
+    PRINCIPAL_MISMATCH = "PRINCIPAL_MISMATCH"
+
+
 _Scalar: TypeAlias = str | int | bool | None
 _Fields: TypeAlias = tuple[tuple[str, _Scalar], ...]
 _ConditionResults: TypeAlias = tuple[tuple[str, ConditionStatus], ...]
@@ -291,6 +299,20 @@ class Principal:
 
     def __post_init__(self) -> None:
         _non_blank(self.identifier, "principal identifier")
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectPrincipalBinding:
+    """An externally supplied assertion relating a Subject to a Principal."""
+
+    subject: Subject
+    principal: Principal
+
+    def __post_init__(self) -> None:
+        if type(self.subject) is not Subject:
+            raise TypeError("binding subject must be a Subject")
+        if type(self.principal) is not Principal:
+            raise TypeError("binding principal must be a Principal")
 
 
 @dataclass(frozen=True, slots=True)
@@ -628,16 +650,19 @@ class RequestContext:
 
 
 @dataclass(frozen=True, slots=True)
-class Authority:
-    """An explicit authority presented for consideration."""
+class AuthorityContext:
+    """Policy-visible authority-related context, not delegated authority."""
 
     identifier: str
     attributes: _Fields = field(default=(), compare=False, hash=False)
     _typed_attributes: _TypedFields = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        _non_blank(self.identifier, "authority identifier")
-        attributes = _canonical_fields(self.attributes, "authority attributes")
+        _non_blank(self.identifier, "authority-context identifier")
+        attributes = _canonical_fields(
+            self.attributes,
+            "authority-context attributes",
+        )
         object.__setattr__(
             self,
             "attributes",
@@ -654,7 +679,7 @@ class AuthorizationRequest:
     action: Action
     resource: Resource
     context: RequestContext
-    authority: Authority | None
+    authority_context: AuthorityContext | None
 
     def __post_init__(self) -> None:
         if type(self.subject) is not Subject:
@@ -665,8 +690,55 @@ class AuthorizationRequest:
             raise TypeError("resource must be a Resource")
         if type(self.context) is not RequestContext:
             raise TypeError("context must be a RequestContext")
-        if self.authority is not None and type(self.authority) is not Authority:
-            raise TypeError("authority must be an Authority or None")
+        if (
+            self.authority_context is not None
+            and type(self.authority_context) is not AuthorityContext
+        ):
+            raise TypeError(
+                "authority_context must be an AuthorityContext or None"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectAuthorityBindingResult:
+    """Deterministic evidence relating one request to an authority holder."""
+
+    status: SubjectAuthorityBindingStatus
+    request_digest: Sha256Digest
+    authority_digest: Sha256Digest
+    request_subject: Subject
+    binding: SubjectPrincipalBinding
+    authority_principal: Principal
+    effective_grant_id: str
+
+    def __post_init__(self) -> None:
+        if type(self.status) is not SubjectAuthorityBindingStatus:
+            raise TypeError(
+                "status must be a SubjectAuthorityBindingStatus"
+            )
+        if type(self.request_digest) is not Sha256Digest:
+            raise TypeError("request_digest must be a Sha256Digest")
+        if type(self.authority_digest) is not Sha256Digest:
+            raise TypeError("authority_digest must be a Sha256Digest")
+        if type(self.request_subject) is not Subject:
+            raise TypeError("request_subject must be a Subject")
+        if type(self.binding) is not SubjectPrincipalBinding:
+            raise TypeError("binding must be a SubjectPrincipalBinding")
+        if type(self.authority_principal) is not Principal:
+            raise TypeError("authority_principal must be a Principal")
+        _non_blank(self.effective_grant_id, "effective grant identifier")
+
+        if self.request_subject != self.binding.subject:
+            expected_status = SubjectAuthorityBindingStatus.SUBJECT_MISMATCH
+        elif self.binding.principal != self.authority_principal:
+            expected_status = SubjectAuthorityBindingStatus.PRINCIPAL_MISMATCH
+        else:
+            expected_status = SubjectAuthorityBindingStatus.BOUND
+
+        if self.status is not expected_status:
+            raise ValueError(
+                "binding status does not match the compared Subject and Principal"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1055,6 +1127,7 @@ class DecisionEvidence:
     request_digest: Sha256Digest
     rule_evaluations: tuple[RuleEvaluation, ...] = ()
     authority_applicability: AuthorityApplicabilityResult | None = None
+    subject_authority_binding: SubjectAuthorityBindingResult | None = None
 
     def __post_init__(self) -> None:
         if type(self.policy_bundle_digest) is not Sha256Digest:
@@ -1078,6 +1151,41 @@ class DecisionEvidence:
             raise ValueError(
                 "authority applicability must bind the evidence request digest"
             )
+        if (
+            self.subject_authority_binding is not None
+            and type(self.subject_authority_binding)
+            is not SubjectAuthorityBindingResult
+        ):
+            raise TypeError(
+                "subject_authority_binding must be a "
+                "SubjectAuthorityBindingResult or None"
+            )
+        if (
+            self.subject_authority_binding is not None
+            and self.subject_authority_binding.request_digest
+            != self.request_digest
+        ):
+            raise ValueError(
+                "subject-authority binding must bind the evidence request digest"
+            )
+        if (
+            self.subject_authority_binding is not None
+            and self.authority_applicability is not None
+        ):
+            if (
+                self.subject_authority_binding.authority_digest
+                != self.authority_applicability.authority_digest
+            ):
+                raise ValueError(
+                    "binding and applicability must identify the same authority"
+                )
+            if (
+                self.subject_authority_binding.effective_grant_id
+                != self.authority_applicability.effective_grant_id
+            ):
+                raise ValueError(
+                    "binding and applicability must identify the same grant"
+                )
         object.__setattr__(
             self,
             "rule_evaluations",
@@ -1222,6 +1330,14 @@ class Decision:
         if self.outcome is not Outcome.DENY:
             if not self.evidence.matched_rule_ids:
                 raise ValueError("non-deny decisions require a matched rule")
+            binding = self.evidence.subject_authority_binding
+            if (
+                binding is None
+                or binding.status is not SubjectAuthorityBindingStatus.BOUND
+            ):
+                raise ValueError(
+                    "non-deny decisions require successful subject-authority binding"
+                )
             applicability = self.evidence.authority_applicability
             if (
                 applicability is None

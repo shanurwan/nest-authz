@@ -16,7 +16,9 @@ A valid identity or credential is not, by itself, sufficient authority to perfor
 
 Every authorization request answers the following question:
 
-> May this subject perform this action on this resource under this context, using this authority, in this authorization state?
+> May this subject perform this action on this resource under this context,
+> using holder-bound delegated authority validated against this authorization
+> state and this policy bundle?
 
 Conceptually:
 
@@ -26,7 +28,9 @@ authorize(
     action,
     resource,
     context,
-    authority,
+    authority_context,
+    subject_principal_binding,
+    delegated_authority,
     policy_bundle,
     authorization_state
 ) -> Decision
@@ -170,6 +174,19 @@ Malformed policy, unverifiable authority, unknown actions, unsupported policy co
 
 Unless a narrower deterministic error semantic is explicitly defined, these conditions MUST fail closed.
 
+### INV-011 — Delegated Authority Is Holder-Bound
+
+Validated delegated authority MUST NOT be treated as a bearer capability.
+
+The runtime request `Subject` MUST equal the `Subject` in an explicit
+`SubjectPrincipalBinding`, and the binding `Principal` MUST equal the effective
+leaf grantee of the validated authority. Policy MUST NOT override either
+mismatch.
+
+The deterministic core validates consistency of this supplied binding. It does
+not authenticate the binding or infer one from similar Subject and Principal
+identifier strings.
+
 ---
 
 ## Trust Boundary
@@ -183,6 +200,12 @@ NEST AuthZ does not assume that an agent is trustworthy merely because it:
 * possesses a syntactically valid token
 
 All security-relevant claims used in an authorization decision must be validated by the responsible subsystem before or during policy evaluation.
+
+`AuthorityContext` is optional policy-visible request context only. It is not
+`VerifiedAuthority`, does not prove delegation, and cannot satisfy an execution-
+authority gate. `SubjectPrincipalBinding` is currently trusted input from a
+future authentication adapter; the core does not yet prove IdP, JWT, DID,
+private-key, or NANDA identity authenticity.
 
 ---
 

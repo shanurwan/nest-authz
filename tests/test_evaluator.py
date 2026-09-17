@@ -9,7 +9,7 @@ import unittest
 from nest_authz import (
     Action,
     ApprovalRequirement,
-    Authority,
+    AuthorityContext,
     AuthorityGrant,
     AuthorityScope,
     AuthorizationRequest,
@@ -32,6 +32,7 @@ from nest_authz import (
     RuleEvaluationStatus,
     RevocationSet,
     Subject,
+    SubjectPrincipalBinding,
     canonical_bytes,
     evaluate as _evaluate_with_authority,
     sha256_digest,
@@ -61,12 +62,16 @@ def _verified_authority():
 def evaluate(request, bundle, authority=_DEFAULT_AUTHORITY):
     if authority is _DEFAULT_AUTHORITY:
         authority = _verified_authority()
-    return _evaluate_with_authority(request, bundle, authority)
+    binding = SubjectPrincipalBinding(
+        Subject("agent:7"),
+        Principal("agent:7"),
+    )
+    return _evaluate_with_authority(request, bundle, authority, binding)
 
 
 def _request(context=(), authority=True):
     request_authority = (
-        Authority("grant:1", {"scope": "messages", "active": True})
+        AuthorityContext("grant:1", {"scope": "messages", "active": True})
         if authority
         else None
     )
@@ -286,13 +291,14 @@ class EvaluatorDeterminismTests(unittest.TestCase):
         script = "\n".join(
             (
                 "from nest_authz import *",
-                "request = AuthorizationRequest(Subject('agent:7'), Action('message.send'), Resource('room:general'), RequestContext({'allowed': True}), Authority('grant:1'))",
+                "request = AuthorizationRequest(Subject('agent:7'), Action('message.send'), Resource('room:general'), RequestContext({'allowed': True}), AuthorityContext('grant:1'))",
                 "condition = Condition('allowed', FieldReference(FieldNamespace.CONTEXT, 'allowed'), ConditionOperator.EQUALS, True)",
                 "rule = Rule('rule:permit', RuleEffect.PERMIT, (condition,))",
                 "bundle = PolicyBundle((Policy('policy:1', (rule,)),))",
                 "grant = AuthorityGrant('grant:messages', Principal('issuer:root'), Principal('agent:7'), AuthorityScope(Action('message.send'), Resource('room:general')), None, 0, 100)",
                 "authority = validate_authority(DelegationChain((grant,)), AuthorizationState(50)).verified_authority",
-                "decision = evaluate(request, bundle, authority)",
+                "binding = SubjectPrincipalBinding(Subject('agent:7'), Principal('agent:7'))",
+                "decision = evaluate(request, bundle, authority, binding)",
                 "print(decision.outcome.value)",
                 "print(','.join('/'.join(value) for value in decision.evidence.matched_rule_ids))",
                 "print(canonical_bytes(decision).hex())",

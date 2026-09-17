@@ -3,7 +3,7 @@
 from .domain import (
     Action,
     ApprovalRequirement,
-    Authority,
+    AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityApplicabilityStatus,
     AuthorityBoundEvaluation,
@@ -36,9 +36,13 @@ from .domain import (
     RevocationSet,
     Sha256Digest,
     Subject,
+    SubjectAuthorityBindingResult,
+    SubjectAuthorityBindingStatus,
+    SubjectPrincipalBinding,
     VerifiedAuthority,
 )
 from .applicability import check_authority_applicability
+from .binding import check_subject_authority_binding
 from .canonical import canonical_bytes, sha256_digest
 from .delegation import AuthorityValidationError, validate_authority
 from .evaluator import EvaluationError, evaluate
@@ -46,7 +50,7 @@ from .evaluator import EvaluationError, evaluate
 __all__ = [
     "Action",
     "ApprovalRequirement",
-    "Authority",
+    "AuthorityContext",
     "AuthorityApplicabilityResult",
     "AuthorityApplicabilityStatus",
     "AuthorityBoundEvaluation",
@@ -80,9 +84,13 @@ __all__ = [
     "RevocationSet",
     "Sha256Digest",
     "Subject",
+    "SubjectAuthorityBindingResult",
+    "SubjectAuthorityBindingStatus",
+    "SubjectPrincipalBinding",
     "VerifiedAuthority",
     "canonical_bytes",
     "check_authority_applicability",
+    "check_subject_authority_binding",
     "EvaluationError",
     "evaluate",
     "sha256_digest",

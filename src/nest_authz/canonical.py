@@ -8,7 +8,7 @@ from hashlib import sha256
 from .domain import (
     Action,
     ApprovalRequirement,
-    Authority,
+    AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityApplicabilityStatus,
     AuthorityBoundEvaluation,
@@ -41,6 +41,9 @@ from .domain import (
     RevocationSet,
     Sha256Digest,
     Subject,
+    SubjectAuthorityBindingResult,
+    SubjectAuthorityBindingStatus,
+    SubjectPrincipalBinding,
     VerifiedAuthority,
 )
 
@@ -204,6 +207,14 @@ def _encode_domain(value: object) -> bytes:
             "nest-authz/principal@1",
             (("identifier", _encode_string(value.identifier)),),
         )
+    if value_type is SubjectPrincipalBinding:
+        return _encode_record(
+            "nest-authz/subject-principal-binding@1",
+            (
+                ("subject", _encode_domain(value.subject)),
+                ("principal", _encode_domain(value.principal)),
+            ),
+        )
     if value_type is AuthorityScope:
         return _encode_record(
             "nest-authz/authority-scope@1",
@@ -358,9 +369,9 @@ def _encode_domain(value: object) -> bytes:
             "nest-authz/request-context@1",
             (("attributes", _encode_scalar_map(value.attributes)),),
         )
-    if value_type is Authority:
+    if value_type is AuthorityContext:
         return _encode_record(
-            "nest-authz/authority@1",
+            "nest-authz/authority-context@1",
             (
                 ("identifier", _encode_string(value.identifier)),
                 ("attributes", _encode_scalar_map(value.attributes)),
@@ -368,13 +379,40 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is AuthorizationRequest:
         return _encode_record(
-            "nest-authz/authorization-request@1",
+            "nest-authz/authorization-request@2",
             (
                 ("subject", _encode_domain(value.subject)),
                 ("action", _encode_domain(value.action)),
                 ("resource", _encode_domain(value.resource)),
                 ("context", _encode_domain(value.context)),
-                ("authority", _encode_optional_domain(value.authority)),
+                (
+                    "authority_context",
+                    _encode_optional_domain(value.authority_context),
+                ),
+            ),
+        )
+    if value_type is SubjectAuthorityBindingStatus:
+        return _encode_record(
+            "nest-authz/subject-authority-binding-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is SubjectAuthorityBindingResult:
+        return _encode_record(
+            "nest-authz/subject-authority-binding-result@1",
+            (
+                ("status", _encode_domain(value.status)),
+                ("request_digest", _encode_domain(value.request_digest)),
+                ("authority_digest", _encode_domain(value.authority_digest)),
+                ("request_subject", _encode_domain(value.request_subject)),
+                ("binding", _encode_domain(value.binding)),
+                (
+                    "authority_principal",
+                    _encode_domain(value.authority_principal),
+                ),
+                (
+                    "effective_grant_id",
+                    _encode_string(value.effective_grant_id),
+                ),
             ),
         )
     if value_type is Outcome:
@@ -470,7 +508,7 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is DecisionEvidence:
         return _encode_record(
-            "nest-authz/decision-evidence@4",
+            "nest-authz/decision-evidence@5",
             (
                 (
                     "policy_bundle_digest",
@@ -482,11 +520,15 @@ def _encode_domain(value: object) -> bytes:
                     "authority_applicability",
                     _encode_optional_domain(value.authority_applicability),
                 ),
+                (
+                    "subject_authority_binding",
+                    _encode_optional_domain(value.subject_authority_binding),
+                ),
             ),
         )
     if value_type is Decision:
         return _encode_record(
-            "nest-authz/decision@3",
+            "nest-authz/decision@4",
             (
                 ("outcome", _encode_domain(value.outcome)),
                 ("reasons", _encode_sequence(value.reasons)),

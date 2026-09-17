@@ -7,7 +7,7 @@ import unittest
 from nest_authz import (
     Action,
     ApprovalRequirement,
-    Authority,
+    AuthorityContext,
     AuthorityApplicabilityStatus,
     AuthorityBoundEvaluation,
     AuthorityGrant,
@@ -38,8 +38,11 @@ from nest_authz import (
     RevocationSet,
     Sha256Digest,
     Subject,
+    SubjectAuthorityBindingStatus,
+    SubjectPrincipalBinding,
     canonical_bytes,
     check_authority_applicability,
+    check_subject_authority_binding,
     sha256_digest,
     validate_authority,
 )
@@ -70,7 +73,7 @@ def _sample_request(authority=None):
     )
 
 
-def _applicability(request):
+def _validated_authority(request):
     grant = AuthorityGrant(
         "grant:validated",
         Principal("issuer:root"),
@@ -84,7 +87,22 @@ def _applicability(request):
         DelegationChain((grant,)),
         AuthorizationState(50),
     ).verified_authority
-    return check_authority_applicability(request, validated)
+    return validated
+
+
+def _applicability(request):
+    return check_authority_applicability(
+        request,
+        _validated_authority(request),
+    )
+
+
+def _holder_binding(request):
+    return check_subject_authority_binding(
+        request,
+        SubjectPrincipalBinding(request.subject, Principal("agent:7")),
+        _validated_authority(request),
+    )
 
 
 class CanonicalEncodingTests(unittest.TestCase):
@@ -95,8 +113,8 @@ class CanonicalEncodingTests(unittest.TestCase):
         self.assertEqual(canonical_bytes(left), canonical_bytes(right))
 
     def test_mapping_insertion_order_does_not_change_digest(self):
-        left = Authority("grant:1", {"scope": "read", "active": True})
-        right = Authority("grant:1", {"active": True, "scope": "read"})
+        left = AuthorityContext("grant:1", {"scope": "read", "active": True})
+        right = AuthorityContext("grant:1", {"active": True, "scope": "read"})
 
         self.assertEqual(sha256_digest(left), sha256_digest(right))
 
@@ -127,7 +145,7 @@ class CanonicalEncodingTests(unittest.TestCase):
             action=Action("message.send"),
             resource=Resource("room:general"),
             context=RequestContext({"attempt": 2}),
-            authority=Authority("grant:1", {"active": True}),
+            authority_context=AuthorityContext("grant:1", {"active": True}),
         )
 
         first = canonical_bytes(request)
@@ -200,7 +218,7 @@ class CanonicalEncodingTests(unittest.TestCase):
             action=Action("message.send"),
             resource=Resource("room:general"),
             context=RequestContext(context_input),
-            authority=Authority("grant:1", authority_input),
+            authority_context=AuthorityContext("grant:1", authority_input),
         )
         before = sha256_digest(request)
 
@@ -236,9 +254,10 @@ class CanonicalEncodingTests(unittest.TestCase):
         )
         evidence = DecisionEvidence(
             _policy_bundle_digest(),
-            sha256_digest(_sample_request(Authority("grant:1"))),
+            sha256_digest(_sample_request(AuthorityContext("grant:1"))),
             (rule_evaluation,),
-            _applicability(_sample_request(Authority("grant:1"))),
+            _applicability(_sample_request(AuthorityContext("grant:1"))),
+            _holder_binding(_sample_request(AuthorityContext("grant:1"))),
         )
         first = Decision(
             Outcome.PERMIT,
@@ -282,7 +301,7 @@ class CanonicalEncodingTests(unittest.TestCase):
 
         self.assertIn(b"nest-authz/sha256-digest@1", digest_bytes)
         self.assertIn(b"nest-authz/condition-status@1", status_bytes)
-        self.assertIn(b"nest-authz/decision-evidence@4", evidence_bytes)
+        self.assertIn(b"nest-authz/decision-evidence@5", evidence_bytes)
         self.assertIn(b"nest-authz/rule-evaluation-status@1", evidence_bytes)
         self.assertIn(b"nest-authz/rule-evaluation@1", evidence_bytes)
         self.assertIn(b"policy_bundle_digest", evidence_bytes)
@@ -308,7 +327,7 @@ class CanonicalEncodingTests(unittest.TestCase):
                 ),
             )
         )
-        self.assertIn(b"nest-authz/decision@3", decision_bytes)
+        self.assertIn(b"nest-authz/decision@4", decision_bytes)
         self.assertIn(b"approval_requirements", decision_bytes)
 
         grant = AuthorityGrant(
@@ -334,7 +353,7 @@ class CanonicalEncodingTests(unittest.TestCase):
         self.assertIn(b"nest-authz/verified-authority@1", validation_bytes)
 
     def test_every_public_domain_type_is_supported(self):
-        authority = Authority("grant:1", {"active": True})
+        authority = AuthorityContext("grant:1", {"active": True})
         field_reference = FieldReference(FieldNamespace.CONTEXT, "risk_level")
         policy_condition = Condition(
             "risk_is_low",
@@ -361,6 +380,7 @@ class CanonicalEncodingTests(unittest.TestCase):
             sha256_digest(_sample_request(authority)),
             (rule_evaluation,),
             _applicability(_sample_request(authority)),
+            _holder_binding(_sample_request(authority)),
         )
         grant = AuthorityGrant(
             "grant:root",
@@ -436,6 +456,9 @@ class CanonicalEncodingTests(unittest.TestCase):
             AuthorityApplicabilityStatus.APPLICABLE,
             bound_evaluation,
             applicability,
+            SubjectPrincipalBinding(Subject("agent:7"), Principal("agent:7")),
+            SubjectAuthorityBindingStatus.BOUND,
+            _holder_binding(_sample_request(authority)),
         )
 
         for value in values:

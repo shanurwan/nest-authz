@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TypeAlias
 
 from .applicability import check_authority_applicability
+from .binding import check_subject_authority_binding
 from .canonical import sha256_digest
 from .domain import (
     AuthorityApplicabilityStatus,
@@ -24,6 +25,8 @@ from .domain import (
     RuleEffect,
     RuleEvaluation,
     RuleEvaluationStatus,
+    SubjectAuthorityBindingStatus,
+    SubjectPrincipalBinding,
     VerifiedAuthority,
 )
 
@@ -75,12 +78,12 @@ def _resolve_field(
         return present, value, None
 
     if namespace is FieldNamespace.AUTHORITY:
-        if request.authority is None:
+        if request.authority_context is None:
             return False, None, ConditionStatus.MISSING_INPUT
         if reference.name == "identifier":
-            return True, request.authority.identifier, None
+            return True, request.authority_context.identifier, None
         present, value = _direct_attribute(
-            request.authority.attributes,
+            request.authority_context.attributes,
             reference.name,
         )
         return present, value, None
@@ -198,8 +201,9 @@ def evaluate(
     request: AuthorizationRequest,
     bundle: PolicyBundle,
     authority: VerifiedAuthority | None,
+    binding: SubjectPrincipalBinding | None,
 ) -> Decision:
-    """Gate one request by validated authority, then evaluate policy."""
+    """Gate one request by holder-bound authority, then evaluate policy."""
 
     if type(request) is not AuthorizationRequest:
         raise TypeError("request must be an AuthorizationRequest")
@@ -207,6 +211,19 @@ def evaluate(
         raise TypeError("bundle must be a PolicyBundle")
     if authority is not None and type(authority) is not VerifiedAuthority:
         raise TypeError("authority must be a VerifiedAuthority or None")
+    if binding is not None and type(binding) is not SubjectPrincipalBinding:
+        raise TypeError("binding must be a SubjectPrincipalBinding or None")
+
+    applicability = (
+        check_authority_applicability(request, authority)
+        if authority is not None
+        else None
+    )
+    holder_binding = (
+        check_subject_authority_binding(request, binding, authority)
+        if authority is not None and binding is not None
+        else None
+    )
 
     rule_evaluations: list[RuleEvaluation] = []
     matched_rules: list[Rule] = []
@@ -218,16 +235,12 @@ def evaluate(
             if evaluation.status is RuleEvaluationStatus.MATCHED:
                 matched_rules.append(rule)
 
-    applicability = (
-        check_authority_applicability(request, authority)
-        if authority is not None
-        else None
-    )
     evidence = DecisionEvidence(
         policy_bundle_digest=sha256_digest(bundle),
         request_digest=sha256_digest(request),
         rule_evaluations=rule_evaluations,
         authority_applicability=applicability,
+        subject_authority_binding=holder_binding,
     )
 
     has_indeterminate = any(
@@ -248,6 +261,18 @@ def evaluate(
         return Decision(
             Outcome.DENY,
             (Reason("VALIDATED_AUTHORITY_REQUIRED"),),
+            evidence,
+        )
+    if holder_binding is None:
+        return Decision(
+            Outcome.DENY,
+            (Reason("SUBJECT_PRINCIPAL_BINDING_REQUIRED"),),
+            evidence,
+        )
+    if holder_binding.status is not SubjectAuthorityBindingStatus.BOUND:
+        return Decision(
+            Outcome.DENY,
+            (Reason(f"HOLDER_{holder_binding.status.value}"),),
             evidence,
         )
     if applicability.status is not AuthorityApplicabilityStatus.APPLICABLE:

@@ -2,12 +2,18 @@
 
 - Status: Accepted
 - Date: 2026-09-18
-- Amended by: ADR 0006
+- Amended by: ADR 0006 and ADR 0007
 
 ADR 0006 supersedes this ADR's two-argument evaluator API, opaque
 Authority-presence gate, DecisionEvidence authority fields, and affected
 DecisionEvidence and Decision schema versions. Policy condition evaluation and
 `DENY_OVERRIDES` semantics remain unchanged.
+
+ADR 0007 subsequently renames the opaque request `Authority` to
+`AuthorityContext`, renames `AuthorizationRequest.authority` to
+`authority_context`, and requires explicit Subject/Principal holder binding.
+References below to `Authority` and the authority-presence gate describe the
+historical ADR-0004 model, not the current public API.
 
 ## Problem
 
@@ -95,13 +101,13 @@ Version 1 resolves only:
 | `ACTION` | `name` |
 | `RESOURCE` | `identifier` |
 | `CONTEXT` | an exact direct key in `RequestContext.attributes` |
-| `AUTHORITY` | `identifier`, or an exact direct key in `Authority.attributes` |
+| `AUTHORITY` | `identifier`, or an exact direct key in current `AuthorityContext.attributes` |
 
 An unsupported fixed-record field is `ERROR`. A missing direct context or
 authority attribute is absent, without any attempt to interpret punctuation as
 traversal.
 
-If the request has no Authority, every `AUTHORITY` reference produces
+If the request has no `AuthorityContext`, every `AUTHORITY` reference produces
 `MISSING_INPUT`, including `EXISTS`. This represents absence of the authority
 object, not merely absence of one attribute.
 
@@ -175,8 +181,9 @@ Otherwise, matching effects use `DENY_OVERRIDES`:
 3. Otherwise, any matching `PERMIT` produces `PERMIT`.
 4. Otherwise, the default is `DENY`.
 
-If `request.authority` is absent, the final outcome is `DENY` regardless of
-matching effects. Version 1 treats the supplied Authority as explicit input; it
+Historically, if `request.authority` was absent, the final outcome was `DENY`
+regardless of matching effects. That presence gate was superseded by ADR 0006
+and ADR 0007. Version 1 treated the supplied Authority as explicit input; it
 does not validate cryptographic authenticity, expiry, revocation, delegation,
 or provenance.
 
@@ -194,7 +201,8 @@ Decision.
 - every condition identifier paired with its `ConditionStatus`.
 
 `DecisionEvidence` contains the exact `sha256_digest(bundle)`, every Rule
-evaluation, and the request Authority when one was supplied. Deterministic
+evaluation, and the historical request Authority when one was supplied.
+Deterministic
 derived views identify matched policy and Rule identifiers, all condition
 results, indeterminate Rule identifiers, and indeterminate conditions.
 
@@ -269,8 +277,8 @@ schema versions.
   indeterminate failures.
 - Equality and integer comparisons cannot inherit Python's boolean/integer
   equivalence.
-- Authority presence is required for non-deny outcomes, but Authority
-  authenticity is outside this evaluator.
+- This ADR's historical Authority-presence rule is superseded by validated,
+  applicable, holder-bound authority under ADR 0006 and ADR 0007.
 - No obligation conflict-resolution language exists; all distinct returned
   obligations are mandatory.
 - No approval is processed or recorded as satisfied.

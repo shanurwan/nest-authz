@@ -44,8 +44,12 @@ decision have a canonical representation:
 - `Resource`
 - `Sha256Digest`
 - `RequestContext`
-- `Authority`
+- `AuthorityContext` (current; the historical `Authority` record used
+  `nest-authz/authority@1`)
 - `AuthorizationRequest`
+- `SubjectPrincipalBinding`
+- `SubjectAuthorityBindingStatus`
+- `SubjectAuthorityBindingResult`
 - `Outcome`
 - `ConditionStatus`
 - `FieldNamespace`

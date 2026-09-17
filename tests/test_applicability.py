@@ -9,7 +9,7 @@ import unittest
 from nest_authz import (
     Action,
     ApprovalRequirement,
-    Authority,
+    AuthorityContext,
     AuthorityApplicabilityStatus,
     AuthorityGrant,
     AuthorityScope,
@@ -30,9 +30,10 @@ from nest_authz import (
     Rule,
     RuleEffect,
     Subject,
+    SubjectPrincipalBinding,
     canonical_bytes,
     check_authority_applicability,
-    evaluate,
+    evaluate as _evaluate_with_binding,
     sha256_digest,
     validate_authority,
 )
@@ -80,8 +81,19 @@ def _request(
         Action(action),
         Resource(resource),
         RequestContext(context),
-        Authority("opaque:request-authority"),
+        AuthorityContext("opaque:request-authority"),
     )
+
+
+def _binding():
+    return SubjectPrincipalBinding(
+        Subject("agent:7"),
+        Principal("agent:7"),
+    )
+
+
+def evaluate(request, bundle, authority):
+    return _evaluate_with_binding(request, bundle, authority, _binding())
 
 
 def _bundle(effect=RuleEffect.PERMIT):
@@ -276,7 +288,7 @@ class AuthorityApplicabilityTests(unittest.TestCase):
                 "scope = AuthorityScope(Action('payments.transfer'), Resource('account:alice'), {'z_limit': 9, 'amount': 1000})",
                 "grant = AuthorityGrant('grant:leaf', Principal('issuer:root'), Principal('agent:7'), scope, None, 0, 100)",
                 "authority = validate_authority(DelegationChain((grant,)), AuthorizationState(50)).verified_authority",
-                "request = AuthorizationRequest(Subject('agent:7'), Action('payments.transfer'), Resource('account:alice'), RequestContext({'amount': 1000, 'z_limit': 9}), Authority('opaque'))",
+                "request = AuthorizationRequest(Subject('agent:7'), Action('payments.transfer'), Resource('account:alice'), RequestContext({'amount': 1000, 'z_limit': 9}), AuthorityContext('opaque'))",
                 "result = check_authority_applicability(request, authority)",
                 "print(result.status.value)",
                 "print(canonical_bytes(result).hex())",
@@ -379,7 +391,7 @@ class AuthorityApplicabilityTests(unittest.TestCase):
             ),
         )
 
-    def test_opaque_request_authority_alone_cannot_permit(self):
+    def test_authority_context_alone_cannot_permit(self):
         decision = evaluate(_request(), _bundle(), None)
 
         self.assertIs(decision.outcome, Outcome.DENY)
@@ -401,8 +413,8 @@ class AuthorityApplicabilityTests(unittest.TestCase):
 
         decision = evaluate(_request(), _bundle(), _validated_authority())
         decision_bytes = canonical_bytes(decision)
-        self.assertIn(b"nest-authz/decision-evidence@4", decision_bytes)
-        self.assertIn(b"nest-authz/decision@3", decision_bytes)
+        self.assertIn(b"nest-authz/decision-evidence@5", decision_bytes)
+        self.assertIn(b"nest-authz/decision@4", decision_bytes)
 
     def test_applicability_and_evaluator_read_no_external_state(self):
         prohibited_import_roots = {

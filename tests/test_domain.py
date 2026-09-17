@@ -5,7 +5,7 @@ import nest_authz
 from nest_authz import (
     Action,
     ApprovalRequirement,
-    Authority,
+    AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityBoundEvaluation,
     AuthorityGrant,
@@ -36,8 +36,12 @@ from nest_authz import (
     RevocationSet,
     Sha256Digest,
     Subject,
+    SubjectAuthorityBindingResult,
+    SubjectAuthorityBindingStatus,
+    SubjectPrincipalBinding,
     VerifiedAuthority,
     check_authority_applicability,
+    check_subject_authority_binding,
     sha256_digest,
     validate_authority,
 )
@@ -51,8 +55,10 @@ _PUBLIC_DATACLASS_DOMAIN_RECORDS = (
     FieldReference,
     Condition,
     RequestContext,
-    Authority,
+    AuthorityContext,
     AuthorizationRequest,
+    SubjectPrincipalBinding,
+    SubjectAuthorityBindingResult,
     Reason,
     Obligation,
     ApprovalRequirement,
@@ -85,7 +91,7 @@ def _domain_request():
         Action("message.send"),
         Resource("room:general"),
         RequestContext(),
-        Authority("grant:1"),
+        AuthorityContext("grant:1"),
     )
 
 
@@ -93,7 +99,7 @@ def _request_digest():
     return sha256_digest(_domain_request())
 
 
-def _applicability():
+def _verified_authority():
     grant = AuthorityGrant(
         "grant:1",
         Principal("issuer:root"),
@@ -103,11 +109,25 @@ def _applicability():
         0,
         100,
     )
-    authority = validate_authority(
+    return validate_authority(
         DelegationChain((grant,)),
         AuthorizationState(50, RevocationSet()),
     ).verified_authority
-    return check_authority_applicability(_domain_request(), authority)
+
+
+def _applicability():
+    return check_authority_applicability(
+        _domain_request(),
+        _verified_authority(),
+    )
+
+
+def _holder_binding():
+    return check_subject_authority_binding(
+        _domain_request(),
+        SubjectPrincipalBinding(Subject("agent:7"), Principal("agent:7")),
+        _verified_authority(),
+    )
 
 
 def _matched_rule_evaluation(effect=RuleEffect.PERMIT):
@@ -122,7 +142,7 @@ def _matched_rule_evaluation(effect=RuleEffect.PERMIT):
 
 class DomainInvariantTests(unittest.TestCase):
     def test_identifiers_must_not_be_blank(self):
-        for factory in (Subject, Resource, Authority):
+        for factory in (Subject, Resource, AuthorityContext):
             for value in ("", " ", "\t\n"):
                 with self.subTest(factory=factory.__name__, value=value):
                     with self.assertRaisesRegex(ValueError, "must not be blank"):
@@ -134,16 +154,16 @@ class DomainInvariantTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "must not be blank"):
                     Action(value)
 
-    def test_request_can_represent_absent_authority_without_authentication(self):
+    def test_request_can_represent_absent_authority_context_without_authentication(self):
         request = AuthorizationRequest(
             subject=Subject("agent:7"),
             action=Action("message.send"),
             resource=Resource("room:general"),
             context=RequestContext(),
-            authority=None,
+            authority_context=None,
         )
 
-        self.assertIsNone(request.authority)
+        self.assertIsNone(request.authority_context)
         self.assertEqual(
             {field.name for field in fields(Subject)},
             {"identifier"},
@@ -156,7 +176,7 @@ class DomainInvariantTests(unittest.TestCase):
             ("action", "message.send"),
             ("resource", "room:general"),
             ("context", {}),
-            ("authority", "grant:1"),
+            ("authority_context", "grant:1"),
         )
         for field_name, bad_value in invalid_values:
             values = {
@@ -164,7 +184,7 @@ class DomainInvariantTests(unittest.TestCase):
                 "action": Action("message.send"),
                 "resource": Resource("room:general"),
                 "context": RequestContext(),
-                "authority": Authority("grant:1"),
+                "authority_context": AuthorityContext("grant:1"),
             }
             values[field_name] = bad_value
             with self.subTest(field=field_name):
@@ -382,6 +402,7 @@ class DomainInvariantTests(unittest.TestCase):
                             _policy_bundle_digest(),
                             _request_digest(),
                             authority_applicability=_applicability(),
+                            subject_authority_binding=_holder_binding(),
                         ),
                         approval_requirements=approvals,
                     )
@@ -398,6 +419,7 @@ class DomainInvariantTests(unittest.TestCase):
                             _policy_bundle_digest(),
                             _request_digest(),
                             (_matched_rule_evaluation(),),
+                            subject_authority_binding=_holder_binding(),
                         ),
                         approval_requirements=approvals,
                     )
@@ -408,6 +430,7 @@ class DomainInvariantTests(unittest.TestCase):
             _request_digest(),
             (_matched_rule_evaluation(),),
             _applicability(),
+            _holder_binding(),
         )
 
         with self.assertRaisesRegex(ValueError, "exactly when"):
@@ -434,6 +457,7 @@ class DomainInvariantTests(unittest.TestCase):
             _request_digest(),
             (_matched_rule_evaluation(RuleEffect.APPROVAL_REQUIRED),),
             _applicability(),
+            _holder_binding(),
         )
 
         decision = Decision(
@@ -470,6 +494,7 @@ class DomainInvariantTests(unittest.TestCase):
             _request_digest(),
             (_matched_rule_evaluation(),),
             _applicability(),
+            _holder_binding(),
         )
         decision = Decision(Outcome.PERMIT, reasons, evidence, obligations)
         reasons.append(Reason("LATER_MUTATION"))
