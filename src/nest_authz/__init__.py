@@ -3,6 +3,9 @@
 from .domain import (
     Action,
     ApprovalRequirement,
+    ApprovalRequirementState,
+    ApprovalRequirementStatus,
+    ApprovalStatus,
     AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityApplicabilityStatus,
@@ -18,6 +21,7 @@ from .domain import (
     ConditionStatus,
     Decision,
     DecisionEvidence,
+    DecisionReceipt,
     DelegationChain,
     Obligation,
     Outcome,
@@ -25,6 +29,7 @@ from .domain import (
     FieldReference,
     Policy,
     PolicyBundle,
+    PendingApproval,
     Principal,
     Reason,
     RequestContext,
@@ -42,14 +47,27 @@ from .domain import (
     VerifiedAuthority,
 )
 from .applicability import check_authority_applicability
+from .approval import (
+    ApprovalTransitionError,
+    approve_requirement,
+    consume_approval,
+    create_pending_approval,
+    expire_requirement,
+    reject_requirement,
+)
 from .binding import check_subject_authority_binding
 from .canonical import canonical_bytes, sha256_digest
 from .delegation import AuthorityValidationError, validate_authority
 from .evaluator import EvaluationError, evaluate
+from .receipt import create_decision_receipt
 
 __all__ = [
     "Action",
     "ApprovalRequirement",
+    "ApprovalRequirementState",
+    "ApprovalRequirementStatus",
+    "ApprovalStatus",
+    "ApprovalTransitionError",
     "AuthorityContext",
     "AuthorityApplicabilityResult",
     "AuthorityApplicabilityStatus",
@@ -66,6 +84,7 @@ __all__ = [
     "ConditionStatus",
     "Decision",
     "DecisionEvidence",
+    "DecisionReceipt",
     "DelegationChain",
     "Obligation",
     "Outcome",
@@ -73,6 +92,7 @@ __all__ = [
     "FieldReference",
     "Policy",
     "PolicyBundle",
+    "PendingApproval",
     "Principal",
     "Reason",
     "RequestContext",
@@ -89,10 +109,16 @@ __all__ = [
     "SubjectPrincipalBinding",
     "VerifiedAuthority",
     "canonical_bytes",
+    "approve_requirement",
     "check_authority_applicability",
     "check_subject_authority_binding",
+    "consume_approval",
+    "create_decision_receipt",
+    "create_pending_approval",
     "EvaluationError",
     "evaluate",
+    "expire_requirement",
+    "reject_requirement",
     "sha256_digest",
     "validate_authority",
 ]

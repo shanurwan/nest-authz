@@ -88,6 +88,25 @@ class SubjectAuthorityBindingStatus(Enum):
     PRINCIPAL_MISMATCH = "PRINCIPAL_MISMATCH"
 
 
+class ApprovalRequirementStatus(Enum):
+    """The state of one independently tracked approval requirement."""
+
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
+
+
+class ApprovalStatus(Enum):
+    """The derived aggregate state of an approval lifecycle."""
+
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
+    CONSUMED = "CONSUMED"
+
+
 _Scalar: TypeAlias = str | int | bool | None
 _Fields: TypeAlias = tuple[tuple[str, _Scalar], ...]
 _ConditionResults: TypeAlias = tuple[tuple[str, ConditionStatus], ...]
@@ -978,6 +997,63 @@ def _canonical_approval_requirements(
 
 
 @dataclass(frozen=True, slots=True)
+class ApprovalRequirementState:
+    """The immutable state and logical-time evidence for one requirement."""
+
+    requirement: ApprovalRequirement
+    status: ApprovalRequirementStatus
+    decided_by: Principal | None
+    logical_time: int
+
+    def __post_init__(self) -> None:
+        if type(self.requirement) is not ApprovalRequirement:
+            raise TypeError("requirement must be an ApprovalRequirement")
+        if type(self.status) is not ApprovalRequirementStatus:
+            raise TypeError("status must be an ApprovalRequirementStatus")
+        if self.decided_by is not None and type(self.decided_by) is not Principal:
+            raise TypeError("decided_by must be a Principal or None")
+        if type(self.logical_time) is not int:
+            raise TypeError("logical_time must be an exact integer")
+
+        requires_actor = self.status in (
+            ApprovalRequirementStatus.APPROVED,
+            ApprovalRequirementStatus.REJECTED,
+        )
+        if requires_actor != (self.decided_by is not None):
+            raise ValueError(
+                "decided_by must be present exactly for approved or "
+                "rejected requirements"
+            )
+
+
+def _canonical_approval_requirement_states(
+    value: object,
+) -> tuple[ApprovalRequirementState, ...]:
+    states = _typed_tuple(
+        value,
+        ApprovalRequirementState,
+        "requirement_states",
+    )
+    if not states:
+        raise ValueError("requirement_states must contain at least one state")
+    requirements: list[ApprovalRequirement] = []
+    for state in states:
+        if state.requirement in requirements:
+            raise ValueError(
+                "requirement_states must not contain duplicate requirements"
+            )
+        requirements.append(state.requirement)
+    return tuple(
+        sorted(
+            states,
+            key=lambda state: _approval_requirement_sort_key(
+                state.requirement
+            ),
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class Rule:
     """An immutable conditional contribution to policy combination."""
 
@@ -1347,3 +1423,264 @@ class Decision:
                 raise ValueError(
                     "non-deny decisions require applicable validated authority"
                 )
+
+
+_DECISION_RECEIPT_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class DecisionReceipt:
+    """Content-bound identities for one complete authorization evaluation."""
+
+    request_digest: Sha256Digest
+    policy_bundle_digest: Sha256Digest
+    validated_authority_digest: Sha256Digest | None
+    delegation_chain_digest: Sha256Digest | None
+    authorization_state_digest: Sha256Digest | None
+    subject_principal_binding_evidence_digest: Sha256Digest | None
+    authority_applicability_evidence_digest: Sha256Digest | None
+    decision_digest: Sha256Digest
+    outcome: Outcome
+    approval_requirements: tuple[ApprovalRequirement, ...]
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "DecisionReceipt can only be created from a Decision"
+        )
+
+    @classmethod
+    def _from_evaluation(
+        cls,
+        *,
+        request_digest: Sha256Digest,
+        policy_bundle_digest: Sha256Digest,
+        validated_authority_digest: Sha256Digest | None,
+        delegation_chain_digest: Sha256Digest | None,
+        authorization_state_digest: Sha256Digest | None,
+        subject_principal_binding_evidence_digest: Sha256Digest | None,
+        authority_applicability_evidence_digest: Sha256Digest | None,
+        decision_digest: Sha256Digest,
+        outcome: Outcome,
+        approval_requirements: object,
+        _token: object,
+    ) -> DecisionReceipt:
+        if _token is not _DECISION_RECEIPT_TOKEN:
+            raise TypeError("DecisionReceipt requires a completed evaluation")
+
+        for field_name, digest in (
+            ("request_digest", request_digest),
+            ("policy_bundle_digest", policy_bundle_digest),
+            ("decision_digest", decision_digest),
+        ):
+            if type(digest) is not Sha256Digest:
+                raise TypeError(f"{field_name} must be a Sha256Digest")
+
+        optional_digests = (
+            ("validated_authority_digest", validated_authority_digest),
+            ("delegation_chain_digest", delegation_chain_digest),
+            ("authorization_state_digest", authorization_state_digest),
+            (
+                "subject_principal_binding_evidence_digest",
+                subject_principal_binding_evidence_digest,
+            ),
+            (
+                "authority_applicability_evidence_digest",
+                authority_applicability_evidence_digest,
+            ),
+        )
+        for field_name, digest in optional_digests:
+            if digest is not None and type(digest) is not Sha256Digest:
+                raise TypeError(
+                    f"{field_name} must be a Sha256Digest or None"
+                )
+
+        if type(outcome) is not Outcome:
+            raise TypeError("outcome must be an Outcome")
+        requirements = _canonical_approval_requirements(
+            approval_requirements
+        )
+        approval_required = outcome is Outcome.APPROVAL_REQUIRED
+        if approval_required != bool(requirements):
+            raise ValueError(
+                "receipt approval requirements must be present exactly when "
+                "approval is required"
+            )
+
+        if (
+            subject_principal_binding_evidence_digest is not None
+            and validated_authority_digest is None
+        ):
+            raise ValueError(
+                "binding evidence requires validated authority identity"
+            )
+        applicability_fields = (
+            authority_applicability_evidence_digest,
+            validated_authority_digest,
+            delegation_chain_digest,
+            authorization_state_digest,
+        )
+        if authority_applicability_evidence_digest is not None and any(
+            digest is None for digest in applicability_fields
+        ):
+            raise ValueError(
+                "applicability evidence requires authority, chain, and state "
+                "identity"
+            )
+        if outcome is not Outcome.DENY and any(
+            digest is None
+            for digest in (
+                validated_authority_digest,
+                delegation_chain_digest,
+                authorization_state_digest,
+                subject_principal_binding_evidence_digest,
+                authority_applicability_evidence_digest,
+            )
+        ):
+            raise ValueError(
+                "non-deny receipts require complete successful authority "
+                "evidence"
+            )
+
+        result = object.__new__(cls)
+        object.__setattr__(result, "request_digest", request_digest)
+        object.__setattr__(
+            result,
+            "policy_bundle_digest",
+            policy_bundle_digest,
+        )
+        object.__setattr__(
+            result,
+            "validated_authority_digest",
+            validated_authority_digest,
+        )
+        object.__setattr__(
+            result,
+            "delegation_chain_digest",
+            delegation_chain_digest,
+        )
+        object.__setattr__(
+            result,
+            "authorization_state_digest",
+            authorization_state_digest,
+        )
+        object.__setattr__(
+            result,
+            "subject_principal_binding_evidence_digest",
+            subject_principal_binding_evidence_digest,
+        )
+        object.__setattr__(
+            result,
+            "authority_applicability_evidence_digest",
+            authority_applicability_evidence_digest,
+        )
+        object.__setattr__(result, "decision_digest", decision_digest)
+        object.__setattr__(result, "outcome", outcome)
+        object.__setattr__(result, "approval_requirements", requirements)
+        return result
+
+
+_PENDING_APPROVAL_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class PendingApproval:
+    """One immutable receipt-bound approval lifecycle state."""
+
+    receipt: DecisionReceipt
+    receipt_digest: Sha256Digest
+    requirement_states: tuple[ApprovalRequirementState, ...]
+    logical_time: int
+    consumed_at: int | None
+    status: ApprovalStatus
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "PendingApproval can only be created by approval transitions"
+        )
+
+    @classmethod
+    def _from_transition(
+        cls,
+        *,
+        receipt: DecisionReceipt,
+        receipt_digest: Sha256Digest,
+        requirement_states: object,
+        logical_time: int,
+        consumed_at: int | None,
+        _token: object,
+    ) -> PendingApproval:
+        if _token is not _PENDING_APPROVAL_TOKEN:
+            raise TypeError("PendingApproval requires an approval transition")
+        if type(receipt) is not DecisionReceipt:
+            raise TypeError("receipt must be a DecisionReceipt")
+        if receipt.outcome is not Outcome.APPROVAL_REQUIRED:
+            raise ValueError(
+                "pending approval requires an APPROVAL_REQUIRED receipt"
+            )
+        if type(receipt_digest) is not Sha256Digest:
+            raise TypeError("receipt_digest must be a Sha256Digest")
+        if type(logical_time) is not int:
+            raise TypeError("logical_time must be an exact integer")
+
+        states = _canonical_approval_requirement_states(
+            requirement_states
+        )
+        if tuple(state.requirement for state in states) != (
+            receipt.approval_requirements
+        ):
+            raise ValueError(
+                "requirement states must exactly match receipt requirements"
+            )
+        if any(state.logical_time > logical_time for state in states):
+            raise ValueError(
+                "requirement state time cannot exceed approval logical time"
+            )
+        statuses = tuple(state.status for state in states)
+        if consumed_at is not None:
+            if type(consumed_at) is not int:
+                raise TypeError("consumed_at must be an exact integer or None")
+            if consumed_at != logical_time:
+                raise ValueError(
+                    "consumed_at must equal the approval logical time"
+                )
+            if not all(
+                status is ApprovalRequirementStatus.APPROVED
+                for status in statuses
+            ):
+                raise ValueError(
+                    "only fully approved requirements can be consumed"
+                )
+            status = ApprovalStatus.CONSUMED
+        else:
+            if max(state.logical_time for state in states) != logical_time:
+                raise ValueError(
+                    "approval logical time must equal its latest state time"
+                )
+            if ApprovalRequirementStatus.REJECTED in statuses:
+                status = ApprovalStatus.REJECTED
+            elif ApprovalRequirementStatus.EXPIRED in statuses:
+                status = ApprovalStatus.EXPIRED
+            elif all(
+                item is ApprovalRequirementStatus.APPROVED
+                for item in statuses
+            ):
+                status = ApprovalStatus.APPROVED
+            else:
+                status = ApprovalStatus.PENDING
+
+        result = object.__new__(cls)
+        object.__setattr__(result, "receipt", receipt)
+        object.__setattr__(result, "receipt_digest", receipt_digest)
+        object.__setattr__(result, "requirement_states", states)
+        object.__setattr__(result, "logical_time", logical_time)
+        object.__setattr__(result, "consumed_at", consumed_at)
+        object.__setattr__(result, "status", status)
+        return result
+
+    @property
+    def approval_requirements(self) -> tuple[ApprovalRequirement, ...]:
+        """Return the complete receipt-defined approval requirements."""
+
+        return tuple(
+            state.requirement for state in self.requirement_states
+        )

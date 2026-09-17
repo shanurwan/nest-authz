@@ -7,6 +7,9 @@ import unittest
 from nest_authz import (
     Action,
     ApprovalRequirement,
+    ApprovalRequirementState,
+    ApprovalRequirementStatus,
+    ApprovalStatus,
     AuthorityContext,
     AuthorityApplicabilityStatus,
     AuthorityBoundEvaluation,
@@ -20,6 +23,7 @@ from nest_authz import (
     ConditionStatus,
     Decision,
     DecisionEvidence,
+    DecisionReceipt,
     DelegationChain,
     Obligation,
     Outcome,
@@ -27,6 +31,7 @@ from nest_authz import (
     FieldReference,
     Policy,
     PolicyBundle,
+    PendingApproval,
     Principal,
     Reason,
     RequestContext,
@@ -43,6 +48,8 @@ from nest_authz import (
     canonical_bytes,
     check_authority_applicability,
     check_subject_authority_binding,
+    create_decision_receipt,
+    create_pending_approval,
     sha256_digest,
     validate_authority,
 )
@@ -408,6 +415,29 @@ class CanonicalEncodingTests(unittest.TestCase):
             5,
             AuthorityApplicabilityStatus.APPLICABLE,
         )
+        approval_requirement = ApprovalRequirement("OWNER_APPROVAL")
+        approval_rule_evaluation = RuleEvaluation(
+            "policy:1",
+            "rule:1",
+            RuleEffect.APPROVAL_REQUIRED,
+            RuleEvaluationStatus.MATCHED,
+            (("risk_is_low", ConditionStatus.SATISFIED),),
+        )
+        approval_evidence = DecisionEvidence(
+            _policy_bundle_digest(),
+            sha256_digest(_sample_request(authority)),
+            (approval_rule_evaluation,),
+            applicability,
+            _holder_binding(_sample_request(authority)),
+        )
+        approval_decision = Decision(
+            Outcome.APPROVAL_REQUIRED,
+            (Reason("APPROVAL_NEEDED"),),
+            approval_evidence,
+            approval_requirements=(approval_requirement,),
+        )
+        receipt = create_decision_receipt(approval_decision)
+        pending_approval = create_pending_approval(receipt, 50)
         values = (
             Subject("agent:7"),
             Action("message.send"),
@@ -437,6 +467,9 @@ class CanonicalEncodingTests(unittest.TestCase):
             Reason("ALLOWED"),
             Obligation("AUDIT"),
             ApprovalRequirement("OWNER_APPROVAL"),
+            ApprovalRequirementStatus.PENDING,
+            ApprovalStatus.PENDING,
+            pending_approval.requirement_states[0],
             evidence,
             Decision(
                 Outcome.PERMIT,
@@ -444,6 +477,8 @@ class CanonicalEncodingTests(unittest.TestCase):
                 evidence,
                 (Obligation("AUDIT"),),
             ),
+            receipt,
+            pending_approval,
             grant.grantor,
             grant.scope,
             grant,

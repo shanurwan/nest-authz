@@ -8,6 +8,9 @@ from hashlib import sha256
 from .domain import (
     Action,
     ApprovalRequirement,
+    ApprovalRequirementState,
+    ApprovalRequirementStatus,
+    ApprovalStatus,
     AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityApplicabilityStatus,
@@ -23,6 +26,7 @@ from .domain import (
     ConditionStatus,
     Decision,
     DecisionEvidence,
+    DecisionReceipt,
     DelegationChain,
     Obligation,
     Outcome,
@@ -30,6 +34,7 @@ from .domain import (
     FieldReference,
     Policy,
     PolicyBundle,
+    PendingApproval,
     Principal,
     Reason,
     RequestContext,
@@ -449,6 +454,26 @@ def _encode_domain(value: object) -> bytes:
                 ("parameters", _encode_scalar_map(value.parameters)),
             ),
         )
+    if value_type is ApprovalRequirementStatus:
+        return _encode_record(
+            "nest-authz/approval-requirement-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is ApprovalStatus:
+        return _encode_record(
+            "nest-authz/approval-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is ApprovalRequirementState:
+        return _encode_record(
+            "nest-authz/approval-requirement-state@1",
+            (
+                ("requirement", _encode_domain(value.requirement)),
+                ("status", _encode_domain(value.status)),
+                ("decided_by", _encode_optional_domain(value.decided_by)),
+                ("logical_time", _encode_integer(value.logical_time)),
+            ),
+        )
     if value_type is RuleEffect:
         return _encode_record(
             "nest-authz/rule-effect@1",
@@ -538,6 +563,62 @@ def _encode_domain(value: object) -> bytes:
                     "approval_requirements",
                     _encode_sequence(value.approval_requirements),
                 ),
+            ),
+        )
+    if value_type is DecisionReceipt:
+        return _encode_record(
+            "nest-authz/decision-receipt@1",
+            (
+                ("request_digest", _encode_domain(value.request_digest)),
+                (
+                    "policy_bundle_digest",
+                    _encode_domain(value.policy_bundle_digest),
+                ),
+                (
+                    "validated_authority_digest",
+                    _encode_optional_domain(value.validated_authority_digest),
+                ),
+                (
+                    "delegation_chain_digest",
+                    _encode_optional_domain(value.delegation_chain_digest),
+                ),
+                (
+                    "authorization_state_digest",
+                    _encode_optional_domain(value.authorization_state_digest),
+                ),
+                (
+                    "subject_principal_binding_evidence_digest",
+                    _encode_optional_domain(
+                        value.subject_principal_binding_evidence_digest
+                    ),
+                ),
+                (
+                    "authority_applicability_evidence_digest",
+                    _encode_optional_domain(
+                        value.authority_applicability_evidence_digest
+                    ),
+                ),
+                ("decision_digest", _encode_domain(value.decision_digest)),
+                ("outcome", _encode_domain(value.outcome)),
+                (
+                    "approval_requirements",
+                    _encode_sequence(value.approval_requirements),
+                ),
+            ),
+        )
+    if value_type is PendingApproval:
+        return _encode_record(
+            "nest-authz/pending-approval@1",
+            (
+                ("receipt", _encode_domain(value.receipt)),
+                ("receipt_digest", _encode_domain(value.receipt_digest)),
+                (
+                    "requirement_states",
+                    _encode_sequence(value.requirement_states),
+                ),
+                ("logical_time", _encode_integer(value.logical_time)),
+                ("consumed_at", _encode_scalar(value.consumed_at)),
+                ("status", _encode_domain(value.status)),
             ),
         )
 

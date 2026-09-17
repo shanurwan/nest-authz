@@ -19,3 +19,6 @@ the installed package and do not modify `sys.path`:
 python -m pip install --editable .
 python -m unittest discover -s tests -v
 ```
+
+
+Build with codex (gpt-5.6-sol xhigh )

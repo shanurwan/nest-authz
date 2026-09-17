@@ -187,6 +187,23 @@ The deterministic core validates consistency of this supplied binding. It does
 not authenticate the binding or infer one from similar Subject and Principal
 identifier strings.
 
+### INV-012 — Approval Is Receipt-Bound and State-Sensitive
+
+An approval applies only to the exact decision receipt from which its pending
+state was created. The receipt content-binds the request, policy bundle,
+validated authority and delegation chain, supplied authorization state,
+holder-binding evidence, authority-applicability evidence, and final decision.
+
+An approved or consumed state does not independently authorize execution. A
+future enforcement orchestrator MUST compare the current authorization inputs
+with the approved receipt or recompute authorization. Approval MUST NOT revive
+revoked authority, apply to a changed request or policy, widen authority, bypass
+holder binding, or bypass `DENY`.
+
+The pure in-memory state machine does not prevent distributed double
+consumption. Persistent enforcement will require an atomic compare-and-swap or
+transactional consume operation.
+
 ---
 
 ## Trust Boundary
