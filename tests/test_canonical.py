@@ -8,18 +8,24 @@ from nest_authz import (
     Action,
     ApprovalRequirement,
     Authority,
+    AuthorityGrant,
+    AuthorityScope,
+    AuthorityValidationStatus,
     AuthorizationRequest,
+    AuthorizationState,
     Condition,
     ConditionOperator,
     ConditionStatus,
     Decision,
     DecisionEvidence,
+    DelegationChain,
     Obligation,
     Outcome,
     FieldNamespace,
     FieldReference,
     Policy,
     PolicyBundle,
+    Principal,
     Reason,
     RequestContext,
     Resource,
@@ -27,10 +33,12 @@ from nest_authz import (
     RuleEffect,
     RuleEvaluation,
     RuleEvaluationStatus,
+    RevocationSet,
     Sha256Digest,
     Subject,
     canonical_bytes,
     sha256_digest,
+    validate_authority,
 )
 
 
@@ -268,6 +276,28 @@ class CanonicalEncodingTests(unittest.TestCase):
         self.assertIn(b"nest-authz/decision@2", decision_bytes)
         self.assertIn(b"approval_requirements", decision_bytes)
 
+        grant = AuthorityGrant(
+            "grant:root",
+            Principal("issuer:root"),
+            Principal("agent:7"),
+            AuthorityScope(
+                Action("message.send"),
+                Resource("room:general"),
+                (("max_messages", 10),),
+            ),
+            None,
+            0,
+            100,
+        )
+        chain = DelegationChain((grant,))
+        state = AuthorizationState(50, RevocationSet())
+        validation = validate_authority(chain, state)
+        validation_bytes = canonical_bytes(validation)
+
+        self.assertIn(b"nest-authz/authority-validation-result@1", validation_bytes)
+        self.assertIn(b"nest-authz/authority-validation-status@1", validation_bytes)
+        self.assertIn(b"nest-authz/verified-authority@1", validation_bytes)
+
     def test_every_public_domain_type_is_supported(self):
         authority = Authority("grant:1", {"active": True})
         field_reference = FieldReference(FieldNamespace.CONTEXT, "risk_level")
@@ -296,6 +326,24 @@ class CanonicalEncodingTests(unittest.TestCase):
             (rule_evaluation,),
             authority,
         )
+        grant = AuthorityGrant(
+            "grant:root",
+            Principal("issuer:root"),
+            Principal("agent:7"),
+            AuthorityScope(
+                Action("message.send"),
+                Resource("room:general"),
+                (("max_messages", 10),),
+            ),
+            None,
+            0,
+            100,
+        )
+        chain = DelegationChain((grant,))
+        revocations = RevocationSet()
+        state = AuthorizationState(50, revocations)
+        validation = validate_authority(chain, state)
+        self.assertIs(validation.status, AuthorityValidationStatus.VALID)
         values = (
             Subject("agent:7"),
             Action("message.send"),
@@ -332,6 +380,15 @@ class CanonicalEncodingTests(unittest.TestCase):
                 evidence,
                 (Obligation("AUDIT"),),
             ),
+            grant.grantor,
+            grant.scope,
+            grant,
+            chain,
+            revocations,
+            state,
+            AuthorityValidationStatus.VALID,
+            validation.verified_authority,
+            validation,
         )
 
         for value in values:

@@ -56,6 +56,19 @@ class RuleEvaluationStatus(Enum):
     INDETERMINATE = "INDETERMINATE"
 
 
+class AuthorityValidationStatus(Enum):
+    """The deterministic result of validating delegated authority."""
+
+    VALID = "VALID"
+    REVOKED = "REVOKED"
+    NOT_YET_VALID = "NOT_YET_VALID"
+    EXPIRED = "EXPIRED"
+    BROADENED_AUTHORITY = "BROADENED_AUTHORITY"
+    BROKEN_PROVENANCE = "BROKEN_PROVENANCE"
+    CYCLE = "CYCLE"
+    INVALID_CHAIN = "INVALID_CHAIN"
+
+
 _Scalar: TypeAlias = str | int | bool | None
 _Fields: TypeAlias = tuple[tuple[str, _Scalar], ...]
 _ConditionResults: TypeAlias = tuple[tuple[str, ConditionStatus], ...]
@@ -68,6 +81,7 @@ _QualifiedConditionResult: TypeAlias = tuple[
     str,
     ConditionStatus,
 ]
+_IntegerBounds: TypeAlias = tuple[tuple[str, int], ...]
 
 
 def _valid_string(value: object, field_name: str) -> str:
@@ -118,6 +132,30 @@ def _canonical_fields(value: object, field_name: str) -> _Fields:
         result.append((key, scalar))
 
     return tuple(sorted(result, key=lambda pair: pair[0]))
+
+
+def _canonical_integer_bounds(
+    value: object,
+    field_name: str,
+) -> _IntegerBounds:
+    result: list[tuple[str, int]] = []
+    seen: set[str] = set()
+
+    for item in _pairs(value, field_name):
+        if not isinstance(item, (tuple, list)) or len(item) != 2:
+            raise TypeError(f"{field_name} entries must be name/bound pairs")
+        name = _non_blank(item[0], f"{field_name} name")
+        bound = item[1]
+        if type(bound) is not int:
+            raise TypeError(f"{field_name} values must be exact integers")
+        if name in seen:
+            raise ValueError(f"{field_name} contains a duplicate name")
+        seen.add(name)
+        result.append((name, bound))
+
+    return tuple(
+        sorted(result, key=lambda pair: pair[0].encode("utf-8"))
+    )
 
 
 def _typed_fields(fields: _Fields) -> _TypedFields:
@@ -232,6 +270,218 @@ class Sha256Digest:
 
     def __str__(self) -> str:
         return f"{self.algorithm}:{self.hex_value}"
+
+
+@dataclass(frozen=True, slots=True)
+class Principal:
+    """A semantic grantor or grantee identifier, without authentication."""
+
+    identifier: str
+
+    def __post_init__(self) -> None:
+        _non_blank(self.identifier, "principal identifier")
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorityScope:
+    """A closed, mechanically attenuable delegated-authority scope."""
+
+    action: Action
+    resource: Resource
+    context_upper_bounds: _IntegerBounds = ()
+
+    def __post_init__(self) -> None:
+        if type(self.action) is not Action:
+            raise TypeError("scope action must be an Action")
+        if type(self.resource) is not Resource:
+            raise TypeError("scope resource must be a Resource")
+        object.__setattr__(
+            self,
+            "context_upper_bounds",
+            _canonical_integer_bounds(
+                self.context_upper_bounds,
+                "context_upper_bounds",
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorityGrant:
+    """One explicit root or delegated grant in a provenance chain."""
+
+    identifier: str
+    grantor: Principal
+    grantee: Principal
+    scope: AuthorityScope
+    parent_grant_id: str | None
+    valid_from: int
+    valid_until: int
+
+    def __post_init__(self) -> None:
+        _non_blank(self.identifier, "grant identifier")
+        if type(self.grantor) is not Principal:
+            raise TypeError("grantor must be a Principal")
+        if type(self.grantee) is not Principal:
+            raise TypeError("grantee must be a Principal")
+        if type(self.scope) is not AuthorityScope:
+            raise TypeError("scope must be an AuthorityScope")
+        if self.parent_grant_id is not None:
+            _non_blank(self.parent_grant_id, "parent grant identifier")
+        if type(self.valid_from) is not int:
+            raise TypeError("valid_from must be an exact integer")
+        if type(self.valid_until) is not int:
+            raise TypeError("valid_until must be an exact integer")
+        if self.valid_from >= self.valid_until:
+            raise ValueError("valid_from must be less than valid_until")
+
+
+@dataclass(frozen=True, slots=True)
+class DelegationChain:
+    """A nonempty immutable sequence of grants ordered root to leaf."""
+
+    grants: tuple[AuthorityGrant, ...]
+
+    def __post_init__(self) -> None:
+        grants = _typed_tuple(self.grants, AuthorityGrant, "grants")
+        if not grants:
+            raise ValueError("a delegation chain must contain at least one grant")
+        object.__setattr__(self, "grants", grants)
+
+
+def _canonical_identifiers(value: object, field_name: str) -> tuple[str, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
+        raise TypeError(f"{field_name} must be an iterable")
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        identifier = _non_blank(item, f"{field_name} identifier")
+        if identifier in seen:
+            raise ValueError(f"{field_name} must not contain duplicates")
+        seen.add(identifier)
+        result.append(identifier)
+    return tuple(sorted(result, key=lambda item: item.encode("utf-8")))
+
+
+@dataclass(frozen=True, slots=True)
+class RevocationSet:
+    """Explicit immutable grant revocations supplied to validation."""
+
+    grant_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "grant_ids",
+            _canonical_identifiers(self.grant_ids, "revoked grant identifiers"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorizationState:
+    """All deterministic external state consumed by authority validation."""
+
+    logical_time: int
+    revocations: RevocationSet = field(default_factory=RevocationSet)
+
+    def __post_init__(self) -> None:
+        if type(self.logical_time) is not int:
+            raise TypeError("logical_time must be an exact integer")
+        if type(self.revocations) is not RevocationSet:
+            raise TypeError("revocations must be a RevocationSet")
+
+
+_VERIFIED_AUTHORITY_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class VerifiedAuthority:
+    """Authority established only by successful deterministic validation."""
+
+    grant_id: str
+    principal: Principal
+    scope: AuthorityScope
+    validated_at: int
+    chain_digest: Sha256Digest
+    state_digest: Sha256Digest
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError("VerifiedAuthority can only be created by validation")
+
+    @classmethod
+    def _from_validation(
+        cls,
+        *,
+        grant_id: str,
+        principal: Principal,
+        scope: AuthorityScope,
+        validated_at: int,
+        chain_digest: Sha256Digest,
+        state_digest: Sha256Digest,
+        _token: object,
+    ) -> VerifiedAuthority:
+        if _token is not _VERIFIED_AUTHORITY_TOKEN:
+            raise TypeError("VerifiedAuthority requires successful validation")
+        _non_blank(grant_id, "verified grant identifier")
+        if type(principal) is not Principal:
+            raise TypeError("verified principal must be a Principal")
+        if type(scope) is not AuthorityScope:
+            raise TypeError("verified scope must be an AuthorityScope")
+        if type(validated_at) is not int:
+            raise TypeError("validated_at must be an exact integer")
+        if type(chain_digest) is not Sha256Digest:
+            raise TypeError("chain_digest must be a Sha256Digest")
+        if type(state_digest) is not Sha256Digest:
+            raise TypeError("state_digest must be a Sha256Digest")
+
+        result = object.__new__(cls)
+        object.__setattr__(result, "grant_id", grant_id)
+        object.__setattr__(result, "principal", principal)
+        object.__setattr__(result, "scope", scope)
+        object.__setattr__(result, "validated_at", validated_at)
+        object.__setattr__(result, "chain_digest", chain_digest)
+        object.__setattr__(result, "state_digest", state_digest)
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorityValidationResult:
+    """Typed authority-validation outcome with deterministic evidence."""
+
+    status: AuthorityValidationStatus
+    chain_digest: Sha256Digest
+    state_digest: Sha256Digest
+    offending_grant_id: str | None = None
+    verified_authority: VerifiedAuthority | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.status) is not AuthorityValidationStatus:
+            raise TypeError("status must be an AuthorityValidationStatus")
+        if type(self.chain_digest) is not Sha256Digest:
+            raise TypeError("chain_digest must be a Sha256Digest")
+        if type(self.state_digest) is not Sha256Digest:
+            raise TypeError("state_digest must be a Sha256Digest")
+        if self.offending_grant_id is not None:
+            _non_blank(self.offending_grant_id, "offending grant identifier")
+        if (
+            self.verified_authority is not None
+            and type(self.verified_authority) is not VerifiedAuthority
+        ):
+            raise TypeError("verified_authority must be a VerifiedAuthority or None")
+
+        if self.status is AuthorityValidationStatus.VALID:
+            if self.offending_grant_id is not None:
+                raise ValueError("VALID results must not identify an offending grant")
+            if self.verified_authority is None:
+                raise ValueError("VALID results require verified authority")
+            if self.verified_authority.chain_digest != self.chain_digest:
+                raise ValueError("verified authority chain digest must match result")
+            if self.verified_authority.state_digest != self.state_digest:
+                raise ValueError("verified authority state digest must match result")
+        else:
+            if self.offending_grant_id is None:
+                raise ValueError("invalid authority results require an offending grant")
+            if self.verified_authority is not None:
+                raise ValueError("invalid authority results cannot carry verified authority")
 
 
 @dataclass(frozen=True, slots=True)

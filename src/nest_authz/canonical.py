@@ -9,18 +9,25 @@ from .domain import (
     Action,
     ApprovalRequirement,
     Authority,
+    AuthorityGrant,
+    AuthorityScope,
+    AuthorityValidationResult,
+    AuthorityValidationStatus,
     AuthorizationRequest,
+    AuthorizationState,
     Condition,
     ConditionOperator,
     ConditionStatus,
     Decision,
     DecisionEvidence,
+    DelegationChain,
     Obligation,
     Outcome,
     FieldNamespace,
     FieldReference,
     Policy,
     PolicyBundle,
+    Principal,
     Reason,
     RequestContext,
     Resource,
@@ -28,8 +35,10 @@ from .domain import (
     RuleEffect,
     RuleEvaluation,
     RuleEvaluationStatus,
+    RevocationSet,
     Sha256Digest,
     Subject,
+    VerifiedAuthority,
 )
 
 _PREAMBLE = b"NEST-AUTHZ-CANONICAL\x00\x01"
@@ -137,6 +146,17 @@ def _encode_scalar_map(values: Iterable[tuple[str, object]]) -> bytes:
     )
 
 
+def _encode_integer_map(values: Iterable[tuple[str, int]]) -> bytes:
+    return _encode_map(
+        (key, _encode_integer(value))
+        for key, value in values
+    )
+
+
+def _encode_string_sequence(values: Iterable[str]) -> bytes:
+    return _frame(b"L", b"".join(_encode_string(value) for value in values))
+
+
 def _encode_condition_status_map(
     values: Iterable[tuple[str, ConditionStatus]],
 ) -> bytes:
@@ -174,6 +194,88 @@ def _encode_domain(value: object) -> bytes:
             (
                 ("algorithm", _encode_string(value.algorithm)),
                 ("value", _encode_string(value.hex_value)),
+            ),
+        )
+    if value_type is Principal:
+        return _encode_record(
+            "nest-authz/principal@1",
+            (("identifier", _encode_string(value.identifier)),),
+        )
+    if value_type is AuthorityScope:
+        return _encode_record(
+            "nest-authz/authority-scope@1",
+            (
+                ("action", _encode_domain(value.action)),
+                ("resource", _encode_domain(value.resource)),
+                (
+                    "context_upper_bounds",
+                    _encode_integer_map(value.context_upper_bounds),
+                ),
+            ),
+        )
+    if value_type is AuthorityGrant:
+        return _encode_record(
+            "nest-authz/authority-grant@1",
+            (
+                ("identifier", _encode_string(value.identifier)),
+                ("grantor", _encode_domain(value.grantor)),
+                ("grantee", _encode_domain(value.grantee)),
+                ("scope", _encode_domain(value.scope)),
+                ("parent_grant_id", _encode_scalar(value.parent_grant_id)),
+                ("valid_from", _encode_integer(value.valid_from)),
+                ("valid_until", _encode_integer(value.valid_until)),
+            ),
+        )
+    if value_type is DelegationChain:
+        return _encode_record(
+            "nest-authz/delegation-chain@1",
+            (("grants", _encode_sequence(value.grants)),),
+        )
+    if value_type is RevocationSet:
+        return _encode_record(
+            "nest-authz/revocation-set@1",
+            (("grant_ids", _encode_string_sequence(value.grant_ids)),),
+        )
+    if value_type is AuthorizationState:
+        return _encode_record(
+            "nest-authz/authorization-state@1",
+            (
+                ("logical_time", _encode_integer(value.logical_time)),
+                ("revocations", _encode_domain(value.revocations)),
+            ),
+        )
+    if value_type is AuthorityValidationStatus:
+        return _encode_record(
+            "nest-authz/authority-validation-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is VerifiedAuthority:
+        return _encode_record(
+            "nest-authz/verified-authority@1",
+            (
+                ("grant_id", _encode_string(value.grant_id)),
+                ("principal", _encode_domain(value.principal)),
+                ("scope", _encode_domain(value.scope)),
+                ("validated_at", _encode_integer(value.validated_at)),
+                ("chain_digest", _encode_domain(value.chain_digest)),
+                ("state_digest", _encode_domain(value.state_digest)),
+            ),
+        )
+    if value_type is AuthorityValidationResult:
+        return _encode_record(
+            "nest-authz/authority-validation-result@1",
+            (
+                ("status", _encode_domain(value.status)),
+                ("chain_digest", _encode_domain(value.chain_digest)),
+                ("state_digest", _encode_domain(value.state_digest)),
+                (
+                    "offending_grant_id",
+                    _encode_scalar(value.offending_grant_id),
+                ),
+                (
+                    "verified_authority",
+                    _encode_optional_domain(value.verified_authority),
+                ),
             ),
         )
     if value_type is FieldNamespace:

@@ -7,6 +7,7 @@ agent actions with delegated authority, human approval, deterministic
 replay, and verifiable decision receipts.
 
 Status: Experimental / Research Prototype
+
 Integration target: Nanda Town / NEST
 
 ## Development
