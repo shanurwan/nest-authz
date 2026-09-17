@@ -2,6 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-09-18
+- Amended by: ADR 0004
+
+ADR 0004 retains the typed digest and condition statuses while replacing the
+flat condition-result map with policy- and rule-scoped evaluation evidence.
 
 ## Problem
 

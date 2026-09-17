@@ -23,8 +23,10 @@ def _condition(
     name="risk_level",
     operator=ConditionOperator.EQUALS,
     value="low",
+    identifier=None,
 ):
     return Condition(
+        identifier or f"condition:{name}",
         FieldReference(FieldNamespace.CONTEXT, name),
         operator,
         value,
@@ -32,20 +34,32 @@ def _condition(
 
 
 def _rule(identifier, effect=RuleEffect.PERMIT, conditions=None):
-    approval_requirement = (
-        ApprovalRequirement("OWNER_APPROVAL")
+    approval_requirements = (
+        (ApprovalRequirement("OWNER_APPROVAL"),)
         if effect is RuleEffect.APPROVAL_REQUIRED
-        else None
+        else ()
     )
     return Rule(
         identifier,
         effect,
         tuple(conditions) if conditions is not None else (_condition(),),
-        approval_requirement=approval_requirement,
+        approval_requirements=approval_requirements,
     )
 
 
 class PolicyDomainTests(unittest.TestCase):
+    def test_condition_identifier_must_not_be_blank(self):
+        reference = FieldReference(FieldNamespace.CONTEXT, "risk_level")
+        for value in ("", " ", "\t\n"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "must not be blank"):
+                    Condition(
+                        value,
+                        reference,
+                        ConditionOperator.EQUALS,
+                        "low",
+                    )
+
     def test_policy_and_rule_identifiers_must_not_be_blank(self):
         for value in ("", " ", "\t\n"):
             with self.subTest(domain_type="Policy", value=value):
@@ -57,7 +71,12 @@ class PolicyDomainTests(unittest.TestCase):
 
     def test_duplicate_policy_identifiers_are_rejected_within_bundle(self):
         with self.assertRaisesRegex(ValueError, "duplicate identifiers"):
-            PolicyBundle((Policy("policy:1"), Policy("policy:1")))
+            PolicyBundle(
+                (
+                    Policy("policy:1", (_rule("rule:1"),)),
+                    Policy("policy:1", (_rule("rule:2"),)),
+                )
+            )
 
     def test_duplicate_rule_identifiers_are_rejected_within_policy(self):
         with self.assertRaisesRegex(ValueError, "duplicate identifiers"):
@@ -83,22 +102,33 @@ class PolicyDomainTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "at least one condition"):
             Rule("rule:1", RuleEffect.PERMIT, ())
 
-    def test_duplicate_structural_conditions_are_rejected(self):
+    def test_duplicate_condition_identifiers_are_rejected(self):
         condition = _condition()
 
-        with self.assertRaisesRegex(ValueError, "duplicates"):
+        with self.assertRaisesRegex(ValueError, "duplicate identifiers"):
             Rule("rule:1", RuleEffect.PERMIT, (condition, condition))
+
+    def test_duplicate_structural_predicates_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "duplicate predicates"):
+            Rule(
+                "rule:1",
+                RuleEffect.PERMIT,
+                (
+                    _condition(identifier="condition:1"),
+                    _condition(identifier="condition:2"),
+                ),
+            )
 
     def test_operator_value_combinations_are_validated(self):
         reference = FieldReference(FieldNamespace.CONTEXT, "attempt")
 
         with self.assertRaisesRegex(ValueError, "must not have a value"):
-            Condition(reference, ConditionOperator.EXISTS, 1)
+            Condition("condition:1", reference, ConditionOperator.EXISTS, 1)
 
         for operator in (ConditionOperator.EQUALS, ConditionOperator.NOT_EQUALS):
             with self.subTest(operator=operator, value=None):
                 with self.assertRaisesRegex(ValueError, "requires a value"):
-                    Condition(reference, operator)
+                    Condition("condition:1", reference, operator)
 
         integer_operators = (
             ConditionOperator.INTEGER_LESS_THAN,
@@ -110,25 +140,32 @@ class PolicyDomainTests(unittest.TestCase):
             for invalid_value in (True, "1"):
                 with self.subTest(operator=operator, value=invalid_value):
                     with self.assertRaisesRegex(TypeError, "require an int"):
-                        Condition(reference, operator, invalid_value)
+                        Condition(
+                            "condition:1",
+                            reference,
+                            operator,
+                            invalid_value,
+                        )
 
         with self.assertRaisesRegex(TypeError, "ConditionOperator"):
-            Condition(reference, "EQUALS", "low")
+            Condition("condition:1", reference, "EQUALS", "low")
 
     def test_all_operator_shapes_can_be_constructed(self):
         reference = FieldReference(FieldNamespace.CONTEXT, "attempt")
         conditions = (
-            Condition(reference, ConditionOperator.EQUALS, 1),
-            Condition(reference, ConditionOperator.NOT_EQUALS, False),
-            Condition(reference, ConditionOperator.EXISTS),
-            Condition(reference, ConditionOperator.INTEGER_LESS_THAN, 1),
+            Condition("condition:1", reference, ConditionOperator.EQUALS, 1),
+            Condition("condition:2", reference, ConditionOperator.NOT_EQUALS, False),
+            Condition("condition:3", reference, ConditionOperator.EXISTS),
+            Condition("condition:4", reference, ConditionOperator.INTEGER_LESS_THAN, 1),
             Condition(
+                "condition:5",
                 reference,
                 ConditionOperator.INTEGER_LESS_THAN_OR_EQUAL,
                 1,
             ),
-            Condition(reference, ConditionOperator.INTEGER_GREATER_THAN, 1),
+            Condition("condition:6", reference, ConditionOperator.INTEGER_GREATER_THAN, 1),
             Condition(
+                "condition:7",
                 reference,
                 ConditionOperator.INTEGER_GREATER_THAN_OR_EQUAL,
                 1,
@@ -155,9 +192,12 @@ class PolicyDomainTests(unittest.TestCase):
             "rule:1",
             RuleEffect.APPROVAL_REQUIRED,
             (_condition(),),
-            approval_requirement=ApprovalRequirement("OWNER_APPROVAL"),
+            approval_requirements=(ApprovalRequirement("OWNER_APPROVAL"),),
         )
-        self.assertEqual(rule.approval_requirement.code, "OWNER_APPROVAL")
+        self.assertEqual(
+            rule.approval_requirements,
+            (ApprovalRequirement("OWNER_APPROVAL"),),
+        )
 
     def test_non_approval_effects_reject_approval_requirement(self):
         for effect in (RuleEffect.PERMIT, RuleEffect.DENY):
@@ -167,8 +207,39 @@ class PolicyDomainTests(unittest.TestCase):
                         "rule:1",
                         effect,
                         (_condition(),),
-                        approval_requirement=ApprovalRequirement("OWNER_APPROVAL"),
+                        approval_requirements=(
+                            ApprovalRequirement("OWNER_APPROVAL"),
+                        ),
                     )
+
+    def test_approval_requirement_order_is_nonsemantic_and_copied(self):
+        owner = ApprovalRequirement("OWNER_APPROVAL")
+        security = ApprovalRequirement("SECURITY_APPROVAL")
+        source = [security, owner]
+        first = Rule(
+            "rule:1",
+            RuleEffect.APPROVAL_REQUIRED,
+            (_condition(),),
+            approval_requirements=source,
+        )
+        second = Rule(
+            "rule:1",
+            RuleEffect.APPROVAL_REQUIRED,
+            (_condition(),),
+            approval_requirements=(owner, security),
+        )
+        source.append(ApprovalRequirement("LATER_MUTATION"))
+
+        self.assertEqual(first, second)
+        self.assertEqual(first.approval_requirements, (owner, security))
+
+        with self.assertRaisesRegex(ValueError, "duplicates"):
+            Rule(
+                "rule:2",
+                RuleEffect.APPROVAL_REQUIRED,
+                (_condition(),),
+                approval_requirements=(owner, owner),
+            )
 
     def test_collection_inputs_are_defensively_copied(self):
         conditions = [_condition()]
@@ -188,15 +259,16 @@ class PolicyDomainTests(unittest.TestCase):
 
         policies = [policy]
         bundle = PolicyBundle(policies)
-        policies.append(Policy("policy:2"))
+        policies.append(Policy("policy:2", (_rule("rule:3"),)))
 
         self.assertEqual(rule.conditions, (_condition(),))
         self.assertEqual(rule.obligations, (Obligation("AUDIT"),))
         self.assertEqual(policy.rules, (rule,))
         self.assertEqual(bundle.policies, (policy,))
 
-    def test_empty_policies_and_bundles_are_legal_and_inert(self):
-        self.assertEqual(Policy("policy:empty").rules, ())
+    def test_empty_policy_is_rejected_and_empty_bundle_is_legal(self):
+        with self.assertRaisesRegex(ValueError, "at least one rule"):
+            Policy("policy:empty")
         self.assertEqual(PolicyBundle().policies, ())
         self.assertEqual(PolicyBundle().combining_algorithm, "DENY_OVERRIDES")
 
@@ -208,11 +280,16 @@ class PolicyDomainTests(unittest.TestCase):
         reference = FieldReference(FieldNamespace.CONTEXT, "risk_level")
 
         with self.assertRaises(TypeError):
-            Condition(reference, ConditionOperator.EQUALS, lambda: True)
+            Condition(
+                "condition:1",
+                reference,
+                ConditionOperator.EQUALS,
+                lambda: True,
+            )
         with self.assertRaises(TypeError):
-            Condition(lambda: True, ConditionOperator.EXISTS)
+            Condition("condition:1", lambda: True, ConditionOperator.EXISTS)
         with self.assertRaises(TypeError):
-            Condition(reference, lambda value: value, "low")
+            Condition("condition:1", reference, lambda value: value, "low")
 
     def test_policy_bundle_has_no_self_digest(self):
         bundle = PolicyBundle((Policy("policy:1", (_rule("rule:1"),)),))
@@ -224,7 +301,12 @@ class PolicyDomainTests(unittest.TestCase):
 class PolicyCanonicalEncodingTests(unittest.TestCase):
     def test_policy_bundle_has_stable_canonical_schema_names(self):
         reference = FieldReference(FieldNamespace.CONTEXT, "risk_level")
-        condition = Condition(reference, ConditionOperator.EQUALS, "low")
+        condition = Condition(
+            "risk_is_low",
+            reference,
+            ConditionOperator.EQUALS,
+            "low",
+        )
         rule = Rule("rule:1", RuleEffect.PERMIT, (condition,))
         policy = Policy("policy:1", (rule,))
         bundle = PolicyBundle((policy,))
@@ -234,11 +316,11 @@ class PolicyCanonicalEncodingTests(unittest.TestCase):
             b"nest-authz/field-namespace@1",
             b"nest-authz/field-reference@1",
             b"nest-authz/condition-operator@1",
-            b"nest-authz/condition@1",
+            b"nest-authz/condition@2",
             b"nest-authz/rule-effect@1",
-            b"nest-authz/rule@1",
-            b"nest-authz/policy@1",
-            b"nest-authz/policy-bundle@1",
+            b"nest-authz/rule@2",
+            b"nest-authz/policy@2",
+            b"nest-authz/policy-bundle@2",
         ):
             with self.subTest(schema_name=schema_name):
                 self.assertIn(schema_name, encoded)
@@ -284,6 +366,62 @@ class PolicyCanonicalEncodingTests(unittest.TestCase):
 
         self.assertNotEqual(canonical_bytes(permit), canonical_bytes(deny))
         self.assertNotEqual(sha256_digest(permit), sha256_digest(deny))
+
+    def test_condition_identifier_is_part_of_content_identity(self):
+        first = PolicyBundle(
+            (
+                Policy(
+                    "policy:1",
+                    (
+                        _rule(
+                            "rule:1",
+                            conditions=(
+                                _condition(identifier="condition:first"),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        second = PolicyBundle(
+            (
+                Policy(
+                    "policy:1",
+                    (
+                        _rule(
+                            "rule:1",
+                            conditions=(
+                                _condition(identifier="condition:second"),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertNotEqual(sha256_digest(first), sha256_digest(second))
+
+    def test_approval_requirement_order_does_not_change_bundle_digest(self):
+        owner = ApprovalRequirement("OWNER_APPROVAL")
+        security = ApprovalRequirement("SECURITY_APPROVAL")
+        first_rule = Rule(
+            "rule:1",
+            RuleEffect.APPROVAL_REQUIRED,
+            (_condition(),),
+            approval_requirements=(owner, security),
+        )
+        second_rule = Rule(
+            "rule:1",
+            RuleEffect.APPROVAL_REQUIRED,
+            (_condition(),),
+            approval_requirements=(security, owner),
+        )
+
+        first = PolicyBundle((Policy("policy:1", (first_rule,)),))
+        second = PolicyBundle((Policy("policy:1", (second_rule,)),))
+
+        self.assertEqual(first, second)
+        self.assertEqual(sha256_digest(first), sha256_digest(second))
 
     def test_obligation_order_remains_semantic(self):
         condition = (_condition(),)

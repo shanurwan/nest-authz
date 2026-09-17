@@ -25,6 +25,8 @@ from nest_authz import (
     Resource,
     Rule,
     RuleEffect,
+    RuleEvaluation,
+    RuleEvaluationStatus,
     Sha256Digest,
     Subject,
     canonical_bytes,
@@ -187,10 +189,17 @@ class CanonicalEncodingTests(unittest.TestCase):
         self.assertEqual(str(digest), f"sha256:{_SUBJECT_DIGEST_HEX}")
 
     def test_ordered_decision_sequences_preserve_order(self):
+        rule_evaluation = RuleEvaluation(
+            "policy:1",
+            "rule:1",
+            RuleEffect.PERMIT,
+            RuleEvaluationStatus.MATCHED,
+            (("condition:1", ConditionStatus.SATISFIED),),
+        )
         evidence = DecisionEvidence(
             _policy_bundle_digest(),
-            matched_policy_id="policy:1",
-            matched_authority=Authority("grant:1"),
+            (rule_evaluation,),
+            Authority("grant:1"),
         )
         first = Decision(
             Outcome.PERMIT,
@@ -219,21 +228,51 @@ class CanonicalEncodingTests(unittest.TestCase):
         evidence_bytes = canonical_bytes(
             DecisionEvidence(
                 _policy_bundle_digest(),
-                condition_results={
-                    "has_context": ConditionStatus.MISSING_INPUT,
-                },
+                (
+                    RuleEvaluation(
+                        "policy:1",
+                        "rule:1",
+                        RuleEffect.PERMIT,
+                        RuleEvaluationStatus.INDETERMINATE,
+                        (("has_context", ConditionStatus.MISSING_INPUT),),
+                    ),
+                ),
             )
         )
 
         self.assertIn(b"nest-authz/sha256-digest@1", digest_bytes)
         self.assertIn(b"nest-authz/condition-status@1", status_bytes)
-        self.assertIn(b"nest-authz/decision-evidence@2", evidence_bytes)
+        self.assertIn(b"nest-authz/decision-evidence@3", evidence_bytes)
+        self.assertIn(b"nest-authz/rule-evaluation-status@1", evidence_bytes)
+        self.assertIn(b"nest-authz/rule-evaluation@1", evidence_bytes)
         self.assertIn(b"policy_bundle_digest", evidence_bytes)
+
+        decision_bytes = canonical_bytes(
+            Decision(
+                Outcome.DENY,
+                (Reason("INDETERMINATE_RULE"),),
+                DecisionEvidence(
+                    _policy_bundle_digest(),
+                    (
+                        RuleEvaluation(
+                            "policy:1",
+                            "rule:1",
+                            RuleEffect.PERMIT,
+                            RuleEvaluationStatus.INDETERMINATE,
+                            (("has_context", ConditionStatus.MISSING_INPUT),),
+                        ),
+                    ),
+                ),
+            )
+        )
+        self.assertIn(b"nest-authz/decision@2", decision_bytes)
+        self.assertIn(b"approval_requirements", decision_bytes)
 
     def test_every_public_domain_type_is_supported(self):
         authority = Authority("grant:1", {"active": True})
         field_reference = FieldReference(FieldNamespace.CONTEXT, "risk_level")
         policy_condition = Condition(
+            "risk_is_low",
             field_reference,
             ConditionOperator.EQUALS,
             "low",
@@ -245,13 +284,17 @@ class CanonicalEncodingTests(unittest.TestCase):
         )
         policy = Policy("policy:1", (policy_rule,))
         policy_bundle = PolicyBundle((policy,))
+        rule_evaluation = RuleEvaluation(
+            "policy:1",
+            "rule:1",
+            RuleEffect.PERMIT,
+            RuleEvaluationStatus.MATCHED,
+            (("risk_is_low", ConditionStatus.SATISFIED),),
+        )
         evidence = DecisionEvidence(
             _policy_bundle_digest(),
-            matched_policy_id="policy:1",
-            matched_authority=authority,
-            condition_results={
-                "scope_matches": ConditionStatus.SATISFIED,
-            },
+            (rule_evaluation,),
+            authority,
         )
         values = (
             Subject("agent:7"),
@@ -274,9 +317,11 @@ class CanonicalEncodingTests(unittest.TestCase):
             ConditionOperator.EQUALS,
             policy_condition,
             RuleEffect.PERMIT,
+            RuleEvaluationStatus.MATCHED,
             policy_rule,
             policy,
             policy_bundle,
+            rule_evaluation,
             Reason("ALLOWED"),
             Obligation("AUDIT"),
             ApprovalRequirement("OWNER_APPROVAL"),

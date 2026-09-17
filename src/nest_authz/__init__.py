@@ -1,6 +1,5 @@
-"""Immutable domain types for NEST AuthZ."""
+"""Immutable deterministic authorization for NEST AuthZ."""
 
-from .canonical import canonical_bytes, sha256_digest
 from .domain import (
     Action,
     ApprovalRequirement,
@@ -22,9 +21,13 @@ from .domain import (
     Resource,
     Rule,
     RuleEffect,
+    RuleEvaluation,
+    RuleEvaluationStatus,
     Sha256Digest,
     Subject,
 )
+from .canonical import canonical_bytes, sha256_digest
+from .evaluator import EvaluationError, evaluate
 
 __all__ = [
     "Action",
@@ -47,8 +50,12 @@ __all__ = [
     "Resource",
     "Rule",
     "RuleEffect",
+    "RuleEvaluation",
+    "RuleEvaluationStatus",
     "Sha256Digest",
     "Subject",
     "canonical_bytes",
+    "EvaluationError",
+    "evaluate",
     "sha256_digest",
 ]

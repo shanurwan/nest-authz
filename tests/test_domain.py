@@ -8,11 +8,13 @@ from nest_authz import (
     Authority,
     AuthorizationRequest,
     Condition,
+    ConditionOperator,
     ConditionStatus,
     Decision,
     DecisionEvidence,
     Obligation,
     Outcome,
+    FieldNamespace,
     FieldReference,
     Policy,
     PolicyBundle,
@@ -20,6 +22,9 @@ from nest_authz import (
     RequestContext,
     Resource,
     Rule,
+    RuleEffect,
+    RuleEvaluation,
+    RuleEvaluationStatus,
     Sha256Digest,
     Subject,
 )
@@ -41,6 +46,7 @@ _PUBLIC_DATACLASS_DOMAIN_RECORDS = (
     Rule,
     Policy,
     PolicyBundle,
+    RuleEvaluation,
     DecisionEvidence,
     Decision,
 )
@@ -48,6 +54,16 @@ _PUBLIC_DATACLASS_DOMAIN_RECORDS = (
 
 def _policy_bundle_digest():
     return Sha256Digest.from_hex("ab" * 32)
+
+
+def _matched_rule_evaluation(effect=RuleEffect.PERMIT):
+    return RuleEvaluation(
+        "policy:1",
+        "rule:1",
+        effect,
+        RuleEvaluationStatus.MATCHED,
+        (("subject_matches", ConditionStatus.SATISFIED),),
+    )
 
 
 class DomainInvariantTests(unittest.TestCase):
@@ -205,6 +221,16 @@ class DomainInvariantTests(unittest.TestCase):
             ),
         )
 
+    def test_rule_evaluation_status_is_exhaustive(self):
+        self.assertEqual(
+            tuple(RuleEvaluationStatus),
+            (
+                RuleEvaluationStatus.MATCHED,
+                RuleEvaluationStatus.NOT_MATCHED,
+                RuleEvaluationStatus.INDETERMINATE,
+            ),
+        )
+
     def test_reason_and_instruction_codes_must_not_be_blank(self):
         for factory in (Reason, Obligation, ApprovalRequirement):
             with self.subTest(factory=factory.__name__):
@@ -215,34 +241,60 @@ class DomainInvariantTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "Sha256Digest"):
             DecisionEvidence("sha256:" + "ab" * 32)
 
-    def test_condition_results_are_typed_unique_and_canonical(self):
-        evidence = DecisionEvidence(
-            _policy_bundle_digest(),
-            condition_results=(
+    def test_rule_evaluation_results_are_typed_unique_and_canonical(self):
+        evaluation = RuleEvaluation(
+            "policy:1",
+            "rule:1",
+            RuleEffect.PERMIT,
+            RuleEvaluationStatus.MATCHED,
+            (
                 ("scope", ConditionStatus.SATISFIED),
-                ("active", ConditionStatus.NOT_EVALUATED),
+                ("active", ConditionStatus.SATISFIED),
             ),
         )
         self.assertEqual(
-            evidence.condition_results,
+            evaluation.condition_results,
             (
-                ("active", ConditionStatus.NOT_EVALUATED),
+                ("active", ConditionStatus.SATISFIED),
                 ("scope", ConditionStatus.SATISFIED),
             ),
         )
 
         with self.assertRaisesRegex(TypeError, "ConditionStatus"):
-            DecisionEvidence(
-                _policy_bundle_digest(),
-                condition_results=(("scope", True),),
+            RuleEvaluation(
+                "policy:1",
+                "rule:1",
+                RuleEffect.PERMIT,
+                RuleEvaluationStatus.MATCHED,
+                (("scope", True),),
             )
         with self.assertRaisesRegex(ValueError, "duplicate name"):
-            DecisionEvidence(
-                _policy_bundle_digest(),
-                condition_results=(
+            RuleEvaluation(
+                "policy:1",
+                "rule:1",
+                RuleEffect.PERMIT,
+                RuleEvaluationStatus.NOT_MATCHED,
+                (
                     ("scope", ConditionStatus.SATISFIED),
                     ("scope", ConditionStatus.UNSATISFIED),
                 ),
+            )
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            RuleEvaluation(
+                "policy:1",
+                "rule:1",
+                RuleEffect.PERMIT,
+                RuleEvaluationStatus.MATCHED,
+                (("scope", ConditionStatus.UNSATISFIED),),
+            )
+        with self.assertRaisesRegex(ValueError, "NOT_EVALUATED"):
+            RuleEvaluation(
+                "policy:1",
+                "rule:1",
+                RuleEffect.PERMIT,
+                RuleEvaluationStatus.NOT_MATCHED,
+                (("scope", ConditionStatus.NOT_EVALUATED),),
             )
 
     def test_default_deny_can_record_that_nothing_matched(self):
@@ -252,43 +304,47 @@ class DomainInvariantTests(unittest.TestCase):
             evidence=DecisionEvidence(_policy_bundle_digest()),
         )
 
-        self.assertIsNone(decision.evidence.matched_policy_id)
-        self.assertIsNone(decision.evidence.matched_authority)
+        self.assertEqual(decision.evidence.matched_policy_ids, ())
+        self.assertEqual(decision.evidence.matched_rule_ids, ())
+        self.assertIsNone(decision.evidence.request_authority)
 
     def test_non_deny_requires_matched_policy_and_authority(self):
         for outcome in (Outcome.PERMIT, Outcome.APPROVAL_REQUIRED):
-            approval = (
-                ApprovalRequirement("OWNER_APPROVAL")
+            approvals = (
+                (ApprovalRequirement("OWNER_APPROVAL"),)
                 if outcome is Outcome.APPROVAL_REQUIRED
-                else None
+                else ()
             )
 
-            with self.subTest(outcome=outcome, missing="policy"):
-                with self.assertRaisesRegex(ValueError, "matched policy"):
-                    Decision(
-                        outcome=outcome,
-                        reasons=(Reason("RULE_MATCHED"),),
-                        evidence=DecisionEvidence(_policy_bundle_digest()),
-                        approval_requirement=approval,
-                    )
-
-            with self.subTest(outcome=outcome, missing="authority"):
-                with self.assertRaisesRegex(ValueError, "matched authority"):
+            with self.subTest(outcome=outcome, missing="rule"):
+                with self.assertRaisesRegex(ValueError, "matched rule"):
                     Decision(
                         outcome=outcome,
                         reasons=(Reason("RULE_MATCHED"),),
                         evidence=DecisionEvidence(
                             _policy_bundle_digest(),
-                            matched_policy_id="policy:1",
+                            request_authority=Authority("grant:1"),
                         ),
-                        approval_requirement=approval,
+                        approval_requirements=approvals,
+                    )
+
+            with self.subTest(outcome=outcome, missing="authority"):
+                with self.assertRaisesRegex(ValueError, "request authority"):
+                    Decision(
+                        outcome=outcome,
+                        reasons=(Reason("RULE_MATCHED"),),
+                        evidence=DecisionEvidence(
+                            _policy_bundle_digest(),
+                            (_matched_rule_evaluation(),),
+                        ),
+                        approval_requirements=approvals,
                     )
 
     def test_approval_requirement_matches_outcome_exactly(self):
         evidence = DecisionEvidence(
             _policy_bundle_digest(),
-            matched_policy_id="policy:1",
-            matched_authority=Authority("grant:1"),
+            (_matched_rule_evaluation(),),
+            Authority("grant:1"),
         )
 
         with self.assertRaisesRegex(ValueError, "exactly when"):
@@ -303,7 +359,35 @@ class DomainInvariantTests(unittest.TestCase):
                 outcome=Outcome.PERMIT,
                 reasons=(Reason("ALLOWED"),),
                 evidence=evidence,
-                approval_requirement=ApprovalRequirement("OWNER_APPROVAL"),
+                approval_requirements=(ApprovalRequirement("OWNER_APPROVAL"),),
+            )
+
+    def test_decision_approval_requirements_are_nonempty_canonical_and_copied(self):
+        owner = ApprovalRequirement("OWNER_APPROVAL")
+        security = ApprovalRequirement("SECURITY_APPROVAL")
+        requirements = [security, owner]
+        evidence = DecisionEvidence(
+            _policy_bundle_digest(),
+            (_matched_rule_evaluation(RuleEffect.APPROVAL_REQUIRED),),
+            Authority("grant:1"),
+        )
+
+        decision = Decision(
+            Outcome.APPROVAL_REQUIRED,
+            (Reason("APPROVAL_REQUIRED"),),
+            evidence,
+            approval_requirements=requirements,
+        )
+        requirements.append(ApprovalRequirement("LATER_MUTATION"))
+
+        self.assertEqual(decision.approval_requirements, (owner, security))
+
+        with self.assertRaisesRegex(ValueError, "duplicates"):
+            Decision(
+                Outcome.APPROVAL_REQUIRED,
+                (Reason("APPROVAL_REQUIRED"),),
+                evidence,
+                approval_requirements=(owner, owner),
             )
 
     def test_decision_requires_reason_and_typed_outcome(self):
@@ -319,8 +403,8 @@ class DomainInvariantTests(unittest.TestCase):
         obligations = [Obligation("AUDIT")]
         evidence = DecisionEvidence(
             _policy_bundle_digest(),
-            matched_policy_id="policy:1",
-            matched_authority=Authority("grant:1"),
+            (_matched_rule_evaluation(),),
+            Authority("grant:1"),
         )
         decision = Decision(Outcome.PERMIT, reasons, evidence, obligations)
         reasons.append(Reason("LATER_MUTATION"))

@@ -48,11 +48,26 @@ class RuleEffect(Enum):
     APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
 
 
+class RuleEvaluationStatus(Enum):
+    """The aggregate result of evaluating every condition in one rule."""
+
+    MATCHED = "MATCHED"
+    NOT_MATCHED = "NOT_MATCHED"
+    INDETERMINATE = "INDETERMINATE"
+
+
 _Scalar: TypeAlias = str | int | bool | None
 _Fields: TypeAlias = tuple[tuple[str, _Scalar], ...]
 _ConditionResults: TypeAlias = tuple[tuple[str, ConditionStatus], ...]
 _TypedFields: TypeAlias = tuple[tuple[str, str, _Scalar], ...]
 _TypedScalar: TypeAlias = tuple[str, _Scalar]
+_RuleIdentifier: TypeAlias = tuple[str, str]
+_QualifiedConditionResult: TypeAlias = tuple[
+    str,
+    str,
+    str,
+    ConditionStatus,
+]
 
 
 def _valid_string(value: object, field_name: str) -> str:
@@ -236,12 +251,14 @@ class FieldReference:
 class Condition:
     """A declarative comparison of one direct field with a literal value."""
 
+    identifier: str
     field: FieldReference
     operator: ConditionOperator
     value: _Scalar = field(default=None, compare=False, hash=False)
     _typed_value: _TypedScalar = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        _non_blank(self.identifier, "condition identifier")
         if type(self.field) is not FieldReference:
             raise TypeError("field must be a FieldReference")
         if type(self.operator) is not ConditionOperator:
@@ -280,7 +297,7 @@ class Condition:
         )
 
 
-def _condition_sort_key(condition: Condition) -> tuple[object, ...]:
+def _condition_structure(condition: Condition) -> tuple[object, ...]:
     return (
         condition.field.namespace.value,
         condition.field.name,
@@ -294,13 +311,23 @@ def _canonical_conditions(value: object) -> tuple[Condition, ...]:
     if not conditions:
         raise ValueError("a rule must contain at least one condition")
 
-    unique: list[Condition] = []
+    identifiers: set[str] = set()
+    structures: list[tuple[object, ...]] = []
     for condition in conditions:
-        if condition in unique:
-            raise ValueError("conditions must not contain duplicates")
-        unique.append(condition)
+        if condition.identifier in identifiers:
+            raise ValueError("conditions must not contain duplicate identifiers")
+        structure = _condition_structure(condition)
+        if structure in structures:
+            raise ValueError("conditions must not contain duplicate predicates")
+        identifiers.add(condition.identifier)
+        structures.append(structure)
 
-    return tuple(sorted(unique, key=_condition_sort_key))
+    return tuple(
+        sorted(
+            conditions,
+            key=lambda condition: condition.identifier.encode("utf-8"),
+        )
+    )
 
 
 def _canonical_identified_records(
@@ -442,6 +469,31 @@ class ApprovalRequirement:
         object.__setattr__(self, "_typed_parameters", _typed_fields(parameters))
 
 
+def _approval_requirement_sort_key(
+    requirement: ApprovalRequirement,
+) -> tuple[object, ...]:
+    return (
+        requirement.code.encode("utf-8"),
+        requirement._typed_parameters,
+    )
+
+
+def _canonical_approval_requirements(
+    value: object,
+) -> tuple[ApprovalRequirement, ...]:
+    requirements = _typed_tuple(
+        value,
+        ApprovalRequirement,
+        "approval_requirements",
+    )
+    unique: list[ApprovalRequirement] = []
+    for requirement in requirements:
+        if requirement in unique:
+            raise ValueError("approval_requirements must not contain duplicates")
+        unique.append(requirement)
+    return tuple(sorted(unique, key=_approval_requirement_sort_key))
+
+
 @dataclass(frozen=True, slots=True)
 class Rule:
     """An immutable conditional contribution to policy combination."""
@@ -450,7 +502,7 @@ class Rule:
     effect: RuleEffect
     conditions: tuple[Condition, ...]
     obligations: tuple[Obligation, ...] = ()
-    approval_requirement: ApprovalRequirement | None = None
+    approval_requirements: tuple[ApprovalRequirement, ...] = ()
 
     def __post_init__(self) -> None:
         _non_blank(self.identifier, "rule identifier")
@@ -466,20 +518,16 @@ class Rule:
             "obligations",
             _typed_tuple(self.obligations, Obligation, "obligations"),
         )
-
-        if (
-            self.approval_requirement is not None
-            and type(self.approval_requirement) is not ApprovalRequirement
-        ):
-            raise TypeError(
-                "approval_requirement must be an ApprovalRequirement or None"
-            )
+        requirements = _canonical_approval_requirements(
+            self.approval_requirements
+        )
+        object.__setattr__(self, "approval_requirements", requirements)
 
         approval_is_required = self.effect is RuleEffect.APPROVAL_REQUIRED
-        has_approval_requirement = self.approval_requirement is not None
-        if approval_is_required != has_approval_requirement:
+        has_approval_requirements = bool(requirements)
+        if approval_is_required != has_approval_requirements:
             raise ValueError(
-                "approval_requirement must be present exactly for "
+                "approval_requirements must be present exactly for "
                 "APPROVAL_REQUIRED rules"
             )
 
@@ -493,10 +541,13 @@ class Policy:
 
     def __post_init__(self) -> None:
         _non_blank(self.identifier, "policy identifier")
+        rules = _canonical_identified_records(self.rules, Rule, "rules")
+        if not rules:
+            raise ValueError("a policy must contain at least one rule")
         object.__setattr__(
             self,
             "rules",
-            _canonical_identified_records(self.rules, Rule, "rules"),
+            rules,
         )
 
 
@@ -516,28 +567,166 @@ class PolicyBundle:
 
 
 @dataclass(frozen=True, slots=True)
+class RuleEvaluation:
+    """Complete condition evidence and aggregate status for one policy rule."""
+
+    policy_id: str
+    rule_id: str
+    effect: RuleEffect
+    status: RuleEvaluationStatus
+    condition_results: _ConditionResults
+
+    def __post_init__(self) -> None:
+        _non_blank(self.policy_id, "policy identifier")
+        _non_blank(self.rule_id, "rule identifier")
+        if type(self.effect) is not RuleEffect:
+            raise TypeError("effect must be a RuleEffect")
+        if type(self.status) is not RuleEvaluationStatus:
+            raise TypeError("status must be a RuleEvaluationStatus")
+
+        condition_results = _canonical_condition_results(self.condition_results)
+        if not condition_results:
+            raise ValueError("a rule evaluation must contain condition results")
+        if any(
+            result is ConditionStatus.NOT_EVALUATED
+            for _, result in condition_results
+        ):
+            raise ValueError(
+                "NOT_EVALUATED is not valid in a version-1 rule evaluation"
+            )
+
+        results = tuple(result for _, result in condition_results)
+        if ConditionStatus.UNSATISFIED in results:
+            expected_status = RuleEvaluationStatus.NOT_MATCHED
+        elif (
+            ConditionStatus.MISSING_INPUT in results
+            or ConditionStatus.ERROR in results
+        ):
+            expected_status = RuleEvaluationStatus.INDETERMINATE
+        else:
+            expected_status = RuleEvaluationStatus.MATCHED
+
+        if self.status is not expected_status:
+            raise ValueError(
+                "rule evaluation status does not match its condition results"
+            )
+        object.__setattr__(self, "condition_results", condition_results)
+
+
+def _canonical_rule_evaluations(
+    value: object,
+) -> tuple[RuleEvaluation, ...]:
+    evaluations = _typed_tuple(value, RuleEvaluation, "rule_evaluations")
+    identifiers: set[_RuleIdentifier] = set()
+    for evaluation in evaluations:
+        identifier = (evaluation.policy_id, evaluation.rule_id)
+        if identifier in identifiers:
+            raise ValueError(
+                "rule_evaluations must not contain duplicate rule identifiers"
+            )
+        identifiers.add(identifier)
+    return tuple(
+        sorted(
+            evaluations,
+            key=lambda evaluation: (
+                evaluation.policy_id.encode("utf-8"),
+                evaluation.rule_id.encode("utf-8"),
+            ),
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class DecisionEvidence:
     """Machine-readable evidence supporting a decision."""
 
     policy_bundle_digest: Sha256Digest
-    matched_policy_id: str | None = None
-    matched_authority: Authority | None = None
-    condition_results: _ConditionResults = ()
+    rule_evaluations: tuple[RuleEvaluation, ...] = ()
+    request_authority: Authority | None = None
 
     def __post_init__(self) -> None:
         if type(self.policy_bundle_digest) is not Sha256Digest:
             raise TypeError("policy_bundle_digest must be a Sha256Digest")
-        if self.matched_policy_id is not None:
-            _non_blank(self.matched_policy_id, "matched policy identifier")
         if (
-            self.matched_authority is not None
-            and type(self.matched_authority) is not Authority
+            self.request_authority is not None
+            and type(self.request_authority) is not Authority
         ):
-            raise TypeError("matched_authority must be an Authority or None")
+            raise TypeError("request_authority must be an Authority or None")
         object.__setattr__(
             self,
-            "condition_results",
-            _canonical_condition_results(self.condition_results),
+            "rule_evaluations",
+            _canonical_rule_evaluations(self.rule_evaluations),
+        )
+
+    @property
+    def matched_policy_ids(self) -> tuple[str, ...]:
+        """Return identifiers of policies containing matching rules."""
+
+        identifiers: list[str] = []
+        for evaluation in self.rule_evaluations:
+            if (
+                evaluation.status is RuleEvaluationStatus.MATCHED
+                and evaluation.policy_id not in identifiers
+            ):
+                identifiers.append(evaluation.policy_id)
+        return tuple(identifiers)
+
+    @property
+    def matched_rule_ids(self) -> tuple[_RuleIdentifier, ...]:
+        """Return policy-scoped identifiers of matching rules."""
+
+        return tuple(
+            (evaluation.policy_id, evaluation.rule_id)
+            for evaluation in self.rule_evaluations
+            if evaluation.status is RuleEvaluationStatus.MATCHED
+        )
+
+    @property
+    def condition_results(self) -> tuple[_QualifiedConditionResult, ...]:
+        """Return all condition results qualified by policy and rule."""
+
+        return tuple(
+            (
+                evaluation.policy_id,
+                evaluation.rule_id,
+                condition_id,
+                status,
+            )
+            for evaluation in self.rule_evaluations
+            for condition_id, status in evaluation.condition_results
+        )
+
+    @property
+    def indeterminate_rule_ids(self) -> tuple[_RuleIdentifier, ...]:
+        """Return policy-scoped identifiers of indeterminate rules."""
+
+        return tuple(
+            (evaluation.policy_id, evaluation.rule_id)
+            for evaluation in self.rule_evaluations
+            if evaluation.status is RuleEvaluationStatus.INDETERMINATE
+        )
+
+    @property
+    def indeterminate_condition_results(
+        self,
+    ) -> tuple[_QualifiedConditionResult, ...]:
+        """Return missing/error conditions in indeterminate rules."""
+
+        indeterminate_statuses = (
+            ConditionStatus.MISSING_INPUT,
+            ConditionStatus.ERROR,
+        )
+        return tuple(
+            (
+                evaluation.policy_id,
+                evaluation.rule_id,
+                condition_id,
+                status,
+            )
+            for evaluation in self.rule_evaluations
+            if evaluation.status is RuleEvaluationStatus.INDETERMINATE
+            for condition_id, status in evaluation.condition_results
+            if status in indeterminate_statuses
         )
 
 
@@ -549,7 +738,7 @@ class Decision:
     reasons: tuple[Reason, ...]
     evidence: DecisionEvidence
     obligations: tuple[Obligation, ...] = ()
-    approval_requirement: ApprovalRequirement | None = None
+    approval_requirements: tuple[ApprovalRequirement, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.outcome) is not Outcome:
@@ -568,24 +757,20 @@ class Decision:
             "obligations",
             _typed_tuple(self.obligations, Obligation, "obligations"),
         )
-
-        if (
-            self.approval_requirement is not None
-            and type(self.approval_requirement) is not ApprovalRequirement
-        ):
-            raise TypeError(
-                "approval_requirement must be an ApprovalRequirement or None"
-            )
+        requirements = _canonical_approval_requirements(
+            self.approval_requirements
+        )
+        object.__setattr__(self, "approval_requirements", requirements)
 
         approval_is_required = self.outcome is Outcome.APPROVAL_REQUIRED
-        has_approval_requirement = self.approval_requirement is not None
-        if approval_is_required != has_approval_requirement:
+        has_approval_requirements = bool(requirements)
+        if approval_is_required != has_approval_requirements:
             raise ValueError(
-                "approval_requirement must be present exactly when approval is required"
+                "approval_requirements must be present exactly when approval is required"
             )
 
         if self.outcome is not Outcome.DENY:
-            if self.evidence.matched_policy_id is None:
-                raise ValueError("non-deny decisions require a matched policy")
-            if self.evidence.matched_authority is None:
-                raise ValueError("non-deny decisions require matched authority")
+            if not self.evidence.matched_rule_ids:
+                raise ValueError("non-deny decisions require a matched rule")
+            if self.evidence.request_authority is None:
+                raise ValueError("non-deny decisions require request authority")

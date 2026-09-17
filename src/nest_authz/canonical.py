@@ -26,6 +26,8 @@ from .domain import (
     Resource,
     Rule,
     RuleEffect,
+    RuleEvaluation,
+    RuleEvaluationStatus,
     Sha256Digest,
     Subject,
 )
@@ -194,8 +196,9 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is Condition:
         return _encode_record(
-            "nest-authz/condition@1",
+            "nest-authz/condition@2",
             (
+                ("identifier", _encode_string(value.identifier)),
                 ("field", _encode_domain(value.field)),
                 ("operator", _encode_domain(value.operator)),
                 ("value", _encode_scalar(value.value)),
@@ -264,23 +267,28 @@ def _encode_domain(value: object) -> bytes:
             "nest-authz/rule-effect@1",
             (("value", _encode_string(value.value)),),
         )
+    if value_type is RuleEvaluationStatus:
+        return _encode_record(
+            "nest-authz/rule-evaluation-status@1",
+            (("value", _encode_string(value.value)),),
+        )
     if value_type is Rule:
         return _encode_record(
-            "nest-authz/rule@1",
+            "nest-authz/rule@2",
             (
                 ("identifier", _encode_string(value.identifier)),
                 ("effect", _encode_domain(value.effect)),
                 ("conditions", _encode_sequence(value.conditions)),
                 ("obligations", _encode_sequence(value.obligations)),
                 (
-                    "approval_requirement",
-                    _encode_optional_domain(value.approval_requirement),
+                    "approval_requirements",
+                    _encode_sequence(value.approval_requirements),
                 ),
             ),
         )
     if value_type is Policy:
         return _encode_record(
-            "nest-authz/policy@1",
+            "nest-authz/policy@2",
             (
                 ("identifier", _encode_string(value.identifier)),
                 ("rules", _encode_sequence(value.rules)),
@@ -288,7 +296,7 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is PolicyBundle:
         return _encode_record(
-            "nest-authz/policy-bundle@1",
+            "nest-authz/policy-bundle@2",
             (
                 (
                     "combining_algorithm",
@@ -297,36 +305,46 @@ def _encode_domain(value: object) -> bytes:
                 ("policies", _encode_sequence(value.policies)),
             ),
         )
-    if value_type is DecisionEvidence:
+    if value_type is RuleEvaluation:
         return _encode_record(
-            "nest-authz/decision-evidence@2",
+            "nest-authz/rule-evaluation@1",
             (
-                (
-                    "policy_bundle_digest",
-                    _encode_domain(value.policy_bundle_digest),
-                ),
-                ("matched_policy_id", _encode_scalar(value.matched_policy_id)),
-                (
-                    "matched_authority",
-                    _encode_optional_domain(value.matched_authority),
-                ),
+                ("policy_id", _encode_string(value.policy_id)),
+                ("rule_id", _encode_string(value.rule_id)),
+                ("effect", _encode_domain(value.effect)),
+                ("status", _encode_domain(value.status)),
                 (
                     "condition_results",
                     _encode_condition_status_map(value.condition_results),
                 ),
             ),
         )
+    if value_type is DecisionEvidence:
+        return _encode_record(
+            "nest-authz/decision-evidence@3",
+            (
+                (
+                    "policy_bundle_digest",
+                    _encode_domain(value.policy_bundle_digest),
+                ),
+                ("rule_evaluations", _encode_sequence(value.rule_evaluations)),
+                (
+                    "request_authority",
+                    _encode_optional_domain(value.request_authority),
+                ),
+            ),
+        )
     if value_type is Decision:
         return _encode_record(
-            "nest-authz/decision@1",
+            "nest-authz/decision@2",
             (
                 ("outcome", _encode_domain(value.outcome)),
                 ("reasons", _encode_sequence(value.reasons)),
                 ("evidence", _encode_domain(value.evidence)),
                 ("obligations", _encode_sequence(value.obligations)),
                 (
-                    "approval_requirement",
-                    _encode_optional_domain(value.approval_requirement),
+                    "approval_requirements",
+                    _encode_sequence(value.approval_requirements),
                 ),
             ),
         )

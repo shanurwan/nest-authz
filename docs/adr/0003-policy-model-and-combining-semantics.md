@@ -2,6 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-09-18
+- Amended by: ADR 0004
+
+ADR 0004 supersedes this ADR's condition-identity, singular-approval,
+empty-policy, indeterminate-rule, and affected canonical-schema details.
 
 ## Problem
 
