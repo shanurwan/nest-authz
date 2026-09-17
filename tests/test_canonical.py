@@ -8,6 +8,8 @@ from nest_authz import (
     Action,
     ApprovalRequirement,
     Authority,
+    AuthorityApplicabilityStatus,
+    AuthorityBoundEvaluation,
     AuthorityGrant,
     AuthorityScope,
     AuthorityValidationStatus,
@@ -37,6 +39,7 @@ from nest_authz import (
     Sha256Digest,
     Subject,
     canonical_bytes,
+    check_authority_applicability,
     sha256_digest,
     validate_authority,
 )
@@ -55,6 +58,33 @@ _SUBJECT_DIGEST_HEX = (
 
 def _policy_bundle_digest():
     return Sha256Digest.from_hex("ab" * 32)
+
+
+def _sample_request(authority=None):
+    return AuthorizationRequest(
+        Subject("agent:7"),
+        Action("message.send"),
+        Resource("room:general"),
+        RequestContext(),
+        authority,
+    )
+
+
+def _applicability(request):
+    grant = AuthorityGrant(
+        "grant:validated",
+        Principal("issuer:root"),
+        Principal("agent:7"),
+        AuthorityScope(request.action, request.resource),
+        None,
+        0,
+        100,
+    )
+    validated = validate_authority(
+        DelegationChain((grant,)),
+        AuthorizationState(50),
+    ).verified_authority
+    return check_authority_applicability(request, validated)
 
 
 class CanonicalEncodingTests(unittest.TestCase):
@@ -206,8 +236,9 @@ class CanonicalEncodingTests(unittest.TestCase):
         )
         evidence = DecisionEvidence(
             _policy_bundle_digest(),
+            sha256_digest(_sample_request(Authority("grant:1"))),
             (rule_evaluation,),
-            Authority("grant:1"),
+            _applicability(_sample_request(Authority("grant:1"))),
         )
         first = Decision(
             Outcome.PERMIT,
@@ -236,6 +267,7 @@ class CanonicalEncodingTests(unittest.TestCase):
         evidence_bytes = canonical_bytes(
             DecisionEvidence(
                 _policy_bundle_digest(),
+                sha256_digest(_sample_request()),
                 (
                     RuleEvaluation(
                         "policy:1",
@@ -250,10 +282,12 @@ class CanonicalEncodingTests(unittest.TestCase):
 
         self.assertIn(b"nest-authz/sha256-digest@1", digest_bytes)
         self.assertIn(b"nest-authz/condition-status@1", status_bytes)
-        self.assertIn(b"nest-authz/decision-evidence@3", evidence_bytes)
+        self.assertIn(b"nest-authz/decision-evidence@4", evidence_bytes)
         self.assertIn(b"nest-authz/rule-evaluation-status@1", evidence_bytes)
         self.assertIn(b"nest-authz/rule-evaluation@1", evidence_bytes)
         self.assertIn(b"policy_bundle_digest", evidence_bytes)
+        self.assertIn(b"request_digest", evidence_bytes)
+        self.assertIn(b"authority_applicability", evidence_bytes)
 
         decision_bytes = canonical_bytes(
             Decision(
@@ -261,6 +295,7 @@ class CanonicalEncodingTests(unittest.TestCase):
                 (Reason("INDETERMINATE_RULE"),),
                 DecisionEvidence(
                     _policy_bundle_digest(),
+                    sha256_digest(_sample_request()),
                     (
                         RuleEvaluation(
                             "policy:1",
@@ -273,7 +308,7 @@ class CanonicalEncodingTests(unittest.TestCase):
                 ),
             )
         )
-        self.assertIn(b"nest-authz/decision@2", decision_bytes)
+        self.assertIn(b"nest-authz/decision@3", decision_bytes)
         self.assertIn(b"approval_requirements", decision_bytes)
 
         grant = AuthorityGrant(
@@ -323,8 +358,9 @@ class CanonicalEncodingTests(unittest.TestCase):
         )
         evidence = DecisionEvidence(
             _policy_bundle_digest(),
+            sha256_digest(_sample_request(authority)),
             (rule_evaluation,),
-            authority,
+            _applicability(_sample_request(authority)),
         )
         grant = AuthorityGrant(
             "grant:root",
@@ -344,6 +380,14 @@ class CanonicalEncodingTests(unittest.TestCase):
         state = AuthorizationState(50, revocations)
         validation = validate_authority(chain, state)
         self.assertIs(validation.status, AuthorityValidationStatus.VALID)
+        applicability = _applicability(_sample_request(authority))
+        bound_evaluation = AuthorityBoundEvaluation(
+            "max_messages",
+            10,
+            True,
+            5,
+            AuthorityApplicabilityStatus.APPLICABLE,
+        )
         values = (
             Subject("agent:7"),
             Action("message.send"),
@@ -389,6 +433,9 @@ class CanonicalEncodingTests(unittest.TestCase):
             AuthorityValidationStatus.VALID,
             validation.verified_authority,
             validation,
+            AuthorityApplicabilityStatus.APPLICABLE,
+            bound_evaluation,
+            applicability,
         )
 
         for value in values:

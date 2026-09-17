@@ -2,6 +2,12 @@
 
 - Status: Accepted
 - Date: 2026-09-18
+- Amended by: ADR 0006
+
+ADR 0006 supersedes this ADR's two-argument evaluator API, opaque
+Authority-presence gate, DecisionEvidence authority fields, and affected
+DecisionEvidence and Decision schema versions. Policy condition evaluation and
+`DENY_OVERRIDES` semantics remain unchanged.
 
 ## Problem
 

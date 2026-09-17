@@ -9,6 +9,9 @@ from .domain import (
     Action,
     ApprovalRequirement,
     Authority,
+    AuthorityApplicabilityResult,
+    AuthorityApplicabilityStatus,
+    AuthorityBoundEvaluation,
     AuthorityGrant,
     AuthorityScope,
     AuthorityValidationResult,
@@ -278,6 +281,50 @@ def _encode_domain(value: object) -> bytes:
                 ),
             ),
         )
+    if value_type is AuthorityApplicabilityStatus:
+        return _encode_record(
+            "nest-authz/authority-applicability-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is AuthorityBoundEvaluation:
+        return _encode_record(
+            "nest-authz/authority-bound-evaluation@1",
+            (
+                ("name", _encode_string(value.name)),
+                ("upper_bound", _encode_integer(value.upper_bound)),
+                ("present", _encode_boolean(value.present)),
+                ("supplied_value", _encode_scalar(value.supplied_value)),
+                ("status", _encode_domain(value.status)),
+            ),
+        )
+    if value_type is AuthorityApplicabilityResult:
+        return _encode_record(
+            "nest-authz/authority-applicability-result@1",
+            (
+                ("status", _encode_domain(value.status)),
+                ("request_digest", _encode_domain(value.request_digest)),
+                ("authority_digest", _encode_domain(value.authority_digest)),
+                ("chain_digest", _encode_domain(value.chain_digest)),
+                ("state_digest", _encode_domain(value.state_digest)),
+                (
+                    "effective_grant_id",
+                    _encode_string(value.effective_grant_id),
+                ),
+                ("expected_action", _encode_domain(value.expected_action)),
+                ("request_action", _encode_domain(value.request_action)),
+                ("action_matches", _encode_boolean(value.action_matches)),
+                (
+                    "expected_resource",
+                    _encode_domain(value.expected_resource),
+                ),
+                ("request_resource", _encode_domain(value.request_resource)),
+                ("resource_matches", _encode_boolean(value.resource_matches)),
+                (
+                    "bound_evaluations",
+                    _encode_sequence(value.bound_evaluations),
+                ),
+            ),
+        )
     if value_type is FieldNamespace:
         return _encode_record(
             "nest-authz/field-namespace@1",
@@ -423,22 +470,23 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is DecisionEvidence:
         return _encode_record(
-            "nest-authz/decision-evidence@3",
+            "nest-authz/decision-evidence@4",
             (
                 (
                     "policy_bundle_digest",
                     _encode_domain(value.policy_bundle_digest),
                 ),
+                ("request_digest", _encode_domain(value.request_digest)),
                 ("rule_evaluations", _encode_sequence(value.rule_evaluations)),
                 (
-                    "request_authority",
-                    _encode_optional_domain(value.request_authority),
+                    "authority_applicability",
+                    _encode_optional_domain(value.authority_applicability),
                 ),
             ),
         )
     if value_type is Decision:
         return _encode_record(
-            "nest-authz/decision@2",
+            "nest-authz/decision@3",
             (
                 ("outcome", _encode_domain(value.outcome)),
                 ("reasons", _encode_sequence(value.reasons)),

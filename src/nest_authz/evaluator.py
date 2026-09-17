@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import TypeAlias
 
+from .applicability import check_authority_applicability
 from .canonical import sha256_digest
 from .domain import (
+    AuthorityApplicabilityStatus,
     AuthorizationRequest,
     Condition,
     ConditionOperator,
@@ -22,6 +24,7 @@ from .domain import (
     RuleEffect,
     RuleEvaluation,
     RuleEvaluationStatus,
+    VerifiedAuthority,
 )
 
 
@@ -194,13 +197,16 @@ def _extend_unique(
 def evaluate(
     request: AuthorizationRequest,
     bundle: PolicyBundle,
+    authority: VerifiedAuthority | None,
 ) -> Decision:
-    """Evaluate one request against one bundle without reading external state."""
+    """Gate one request by validated authority, then evaluate policy."""
 
     if type(request) is not AuthorizationRequest:
         raise TypeError("request must be an AuthorizationRequest")
     if type(bundle) is not PolicyBundle:
         raise TypeError("bundle must be a PolicyBundle")
+    if authority is not None and type(authority) is not VerifiedAuthority:
+        raise TypeError("authority must be a VerifiedAuthority or None")
 
     rule_evaluations: list[RuleEvaluation] = []
     matched_rules: list[Rule] = []
@@ -212,10 +218,16 @@ def evaluate(
             if evaluation.status is RuleEvaluationStatus.MATCHED:
                 matched_rules.append(rule)
 
+    applicability = (
+        check_authority_applicability(request, authority)
+        if authority is not None
+        else None
+    )
     evidence = DecisionEvidence(
         policy_bundle_digest=sha256_digest(bundle),
+        request_digest=sha256_digest(request),
         rule_evaluations=rule_evaluations,
-        request_authority=request.authority,
+        authority_applicability=applicability,
     )
 
     has_indeterminate = any(
@@ -232,6 +244,18 @@ def evaluate(
         rule for rule in matched_rules if rule.effect is RuleEffect.PERMIT
     )
 
+    if applicability is None:
+        return Decision(
+            Outcome.DENY,
+            (Reason("VALIDATED_AUTHORITY_REQUIRED"),),
+            evidence,
+        )
+    if applicability.status is not AuthorityApplicabilityStatus.APPLICABLE:
+        return Decision(
+            Outcome.DENY,
+            (Reason(f"AUTHORITY_{applicability.status.value}"),),
+            evidence,
+        )
     if has_indeterminate:
         return Decision(
             Outcome.DENY,
@@ -244,13 +268,6 @@ def evaluate(
             (Reason("DENY_RULE_MATCHED"),),
             evidence,
         )
-    if request.authority is None:
-        return Decision(
-            Outcome.DENY,
-            (Reason("AUTHORITY_REQUIRED"),),
-            evidence,
-        )
-
     obligations: list[Obligation] = []
     if approval_rules:
         for rule in matched_rules:

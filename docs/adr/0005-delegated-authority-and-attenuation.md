@@ -2,6 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-09-18
+- Amended by: ADR 0006
+
+ADR 0006 clarifies the limited trust proven by `VerifiedAuthority`, adds
+request applicability, and integrates that separate gate with policy
+evaluation without changing delegation validation semantics.
 
 ## Problem
 

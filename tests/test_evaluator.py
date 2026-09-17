@@ -10,26 +10,58 @@ from nest_authz import (
     Action,
     ApprovalRequirement,
     Authority,
+    AuthorityGrant,
+    AuthorityScope,
     AuthorizationRequest,
+    AuthorizationState,
     Condition,
     ConditionOperator,
     ConditionStatus,
+    DelegationChain,
     FieldNamespace,
     FieldReference,
     Obligation,
     Outcome,
     Policy,
     PolicyBundle,
+    Principal,
     RequestContext,
     Resource,
     Rule,
     RuleEffect,
     RuleEvaluationStatus,
+    RevocationSet,
     Subject,
     canonical_bytes,
-    evaluate,
+    evaluate as _evaluate_with_authority,
     sha256_digest,
+    validate_authority,
 )
+
+
+_DEFAULT_AUTHORITY = object()
+
+
+def _verified_authority():
+    grant = AuthorityGrant(
+        "grant:messages",
+        Principal("issuer:root"),
+        Principal("agent:7"),
+        AuthorityScope(Action("message.send"), Resource("room:general")),
+        None,
+        0,
+        100,
+    )
+    return validate_authority(
+        DelegationChain((grant,)),
+        AuthorizationState(50, RevocationSet()),
+    ).verified_authority
+
+
+def evaluate(request, bundle, authority=_DEFAULT_AUTHORITY):
+    if authority is _DEFAULT_AUTHORITY:
+        authority = _verified_authority()
+    return _evaluate_with_authority(request, bundle, authority)
 
 
 def _request(context=(), authority=True):
@@ -258,7 +290,9 @@ class EvaluatorDeterminismTests(unittest.TestCase):
                 "condition = Condition('allowed', FieldReference(FieldNamespace.CONTEXT, 'allowed'), ConditionOperator.EQUALS, True)",
                 "rule = Rule('rule:permit', RuleEffect.PERMIT, (condition,))",
                 "bundle = PolicyBundle((Policy('policy:1', (rule,)),))",
-                "decision = evaluate(request, bundle)",
+                "grant = AuthorityGrant('grant:messages', Principal('issuer:root'), Principal('agent:7'), AuthorityScope(Action('message.send'), Resource('room:general')), None, 0, 100)",
+                "authority = validate_authority(DelegationChain((grant,)), AuthorizationState(50)).verified_authority",
+                "decision = evaluate(request, bundle, authority)",
                 "print(decision.outcome.value)",
                 "print(','.join('/'.join(value) for value in decision.evidence.matched_rule_ids))",
                 "print(canonical_bytes(decision).hex())",
@@ -283,13 +317,17 @@ class EvaluatorDeterminismTests(unittest.TestCase):
 class EvaluatorConditionTests(unittest.TestCase):
     def test_absent_authority_cannot_permit(self):
         decision = evaluate(
-            _request({"allowed": True}, authority=False),
+            _request({"allowed": True}),
             _bundle(_rule("rule:permit")),
+            None,
         )
 
         self.assertIs(decision.outcome, Outcome.DENY)
-        self.assertEqual(decision.reasons[0].code, "AUTHORITY_REQUIRED")
-        self.assertIsNone(decision.evidence.request_authority)
+        self.assertEqual(
+            decision.reasons[0].code,
+            "VALIDATED_AUTHORITY_REQUIRED",
+        )
+        self.assertIsNone(decision.evidence.authority_applicability)
 
     def test_absent_authority_reference_is_missing_input(self):
         condition = _condition(
@@ -613,7 +651,11 @@ class EvaluatorAggregationAndEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(len(decision.evidence.rule_evaluations), 2)
         self.assertEqual(len(decision.evidence.condition_results), 2)
-        self.assertEqual(decision.evidence.request_authority, _request().authority)
+        self.assertEqual(decision.evidence.request_digest, sha256_digest(_request({"allowed": True, "zone": "south"})))
+        self.assertEqual(
+            decision.evidence.effective_grant_id,
+            "grant:messages",
+        )
 
     def test_evaluator_source_has_no_prohibited_external_state_dependencies(self):
         evaluator_module = importlib.import_module("nest_authz.evaluator")

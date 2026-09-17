@@ -72,6 +72,9 @@ decision have a canonical representation:
 - `AuthorityValidationStatus`
 - `VerifiedAuthority`
 - `AuthorityValidationResult`
+- `AuthorityApplicabilityStatus`
+- `AuthorityBoundEvaluation`
+- `AuthorityApplicabilityResult`
 
 The public operations are:
 
@@ -126,6 +129,9 @@ Policy, PolicyBundle, DecisionEvidence, and Decision record schemas.
 ADR 0005 adds delegated-authority records without changing any existing record
 schema.
 
+ADR 0006 adds authority-applicability records and advances DecisionEvidence and
+Decision for exact-request and validated-authority binding.
+
 Map keys are strings. Entries are sorted lexicographically by the strict UTF-8
 bytes of their keys. The serialized map key is still a complete `S` frame, so
 the ordering rule and the encoded data are both explicit. Duplicate map keys
@@ -151,6 +157,7 @@ semantic meaning and their keys are sorted only for canonical serialization:
 - rule evaluations within decision evidence; and
 - authority-scope context upper bounds;
 - grant identifiers within a revocation set; and
+- authority-bound evaluations within an applicability result; and
 - record fields.
 
 `Decision.reasons` and `Decision.obligations` are ordered sequences. Their order

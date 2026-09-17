@@ -4,6 +4,9 @@ from .domain import (
     Action,
     ApprovalRequirement,
     Authority,
+    AuthorityApplicabilityResult,
+    AuthorityApplicabilityStatus,
+    AuthorityBoundEvaluation,
     AuthorityGrant,
     AuthorityScope,
     AuthorityValidationResult,
@@ -35,6 +38,7 @@ from .domain import (
     Subject,
     VerifiedAuthority,
 )
+from .applicability import check_authority_applicability
 from .canonical import canonical_bytes, sha256_digest
 from .delegation import AuthorityValidationError, validate_authority
 from .evaluator import EvaluationError, evaluate
@@ -43,6 +47,9 @@ __all__ = [
     "Action",
     "ApprovalRequirement",
     "Authority",
+    "AuthorityApplicabilityResult",
+    "AuthorityApplicabilityStatus",
+    "AuthorityBoundEvaluation",
     "AuthorityGrant",
     "AuthorityScope",
     "AuthorityValidationError",
@@ -75,6 +82,7 @@ __all__ = [
     "Subject",
     "VerifiedAuthority",
     "canonical_bytes",
+    "check_authority_applicability",
     "EvaluationError",
     "evaluate",
     "sha256_digest",

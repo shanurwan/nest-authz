@@ -69,6 +69,17 @@ class AuthorityValidationStatus(Enum):
     INVALID_CHAIN = "INVALID_CHAIN"
 
 
+class AuthorityApplicabilityStatus(Enum):
+    """The result of binding validated authority to one exact request."""
+
+    APPLICABLE = "APPLICABLE"
+    ACTION_MISMATCH = "ACTION_MISMATCH"
+    RESOURCE_MISMATCH = "RESOURCE_MISMATCH"
+    MISSING_CONTEXT = "MISSING_CONTEXT"
+    BOUND_EXCEEDED = "BOUND_EXCEEDED"
+    TYPE_ERROR = "TYPE_ERROR"
+
+
 _Scalar: TypeAlias = str | int | bool | None
 _Fields: TypeAlias = tuple[tuple[str, _Scalar], ...]
 _ConditionResults: TypeAlias = tuple[tuple[str, ConditionStatus], ...]
@@ -658,6 +669,156 @@ class AuthorizationRequest:
             raise TypeError("authority must be an Authority or None")
 
 
+@dataclass(frozen=True, slots=True)
+class AuthorityBoundEvaluation:
+    """Evidence for one effective authority context upper bound."""
+
+    name: str
+    upper_bound: int
+    present: bool
+    supplied_value: _Scalar = field(compare=False, hash=False)
+    status: AuthorityApplicabilityStatus
+    _typed_supplied_value: _TypedScalar = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        _non_blank(self.name, "authority bound name")
+        if type(self.upper_bound) is not int:
+            raise TypeError("authority upper bound must be an exact integer")
+        if type(self.present) is not bool:
+            raise TypeError("authority bound presence must be a boolean")
+        if self.supplied_value is not None and type(self.supplied_value) not in (
+            str,
+            int,
+            bool,
+        ):
+            raise TypeError(
+                "supplied authority-bound values must be str, int, bool, or None"
+            )
+        if type(self.supplied_value) is str:
+            _valid_string(self.supplied_value, "supplied authority-bound value")
+        if type(self.status) is not AuthorityApplicabilityStatus:
+            raise TypeError("bound status must be an AuthorityApplicabilityStatus")
+
+        if not self.present:
+            if self.supplied_value is not None:
+                raise ValueError("a missing authority bound cannot have a value")
+            expected_status = AuthorityApplicabilityStatus.MISSING_CONTEXT
+        elif type(self.supplied_value) is not int:
+            expected_status = AuthorityApplicabilityStatus.TYPE_ERROR
+        elif self.supplied_value > self.upper_bound:
+            expected_status = AuthorityApplicabilityStatus.BOUND_EXCEEDED
+        else:
+            expected_status = AuthorityApplicabilityStatus.APPLICABLE
+
+        if self.status is not expected_status:
+            raise ValueError("bound status does not match the supplied value")
+
+        type_names = {
+            str: "string",
+            int: "integer",
+            bool: "boolean",
+            type(None): "null",
+        }
+        object.__setattr__(
+            self,
+            "_typed_supplied_value",
+            (type_names[type(self.supplied_value)], self.supplied_value),
+        )
+
+
+def _canonical_bound_evaluations(
+    value: object,
+) -> tuple[AuthorityBoundEvaluation, ...]:
+    evaluations = _typed_tuple(
+        value,
+        AuthorityBoundEvaluation,
+        "bound_evaluations",
+    )
+    seen: set[str] = set()
+    for evaluation in evaluations:
+        if evaluation.name in seen:
+            raise ValueError("bound_evaluations must not contain duplicate names")
+        seen.add(evaluation.name)
+    return tuple(
+        sorted(
+            evaluations,
+            key=lambda evaluation: evaluation.name.encode("utf-8"),
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorityApplicabilityResult:
+    """Deterministic evidence binding effective authority to one request."""
+
+    status: AuthorityApplicabilityStatus
+    request_digest: Sha256Digest
+    authority_digest: Sha256Digest
+    chain_digest: Sha256Digest
+    state_digest: Sha256Digest
+    effective_grant_id: str
+    expected_action: Action
+    request_action: Action
+    action_matches: bool
+    expected_resource: Resource
+    request_resource: Resource
+    resource_matches: bool
+    bound_evaluations: tuple[AuthorityBoundEvaluation, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.status) is not AuthorityApplicabilityStatus:
+            raise TypeError("status must be an AuthorityApplicabilityStatus")
+        for field_name, digest in (
+            ("request_digest", self.request_digest),
+            ("authority_digest", self.authority_digest),
+            ("chain_digest", self.chain_digest),
+            ("state_digest", self.state_digest),
+        ):
+            if type(digest) is not Sha256Digest:
+                raise TypeError(f"{field_name} must be a Sha256Digest")
+        _non_blank(self.effective_grant_id, "effective grant identifier")
+        if type(self.expected_action) is not Action:
+            raise TypeError("expected_action must be an Action")
+        if type(self.request_action) is not Action:
+            raise TypeError("request_action must be an Action")
+        if type(self.action_matches) is not bool:
+            raise TypeError("action_matches must be a boolean")
+        if type(self.expected_resource) is not Resource:
+            raise TypeError("expected_resource must be a Resource")
+        if type(self.request_resource) is not Resource:
+            raise TypeError("request_resource must be a Resource")
+        if type(self.resource_matches) is not bool:
+            raise TypeError("resource_matches must be a boolean")
+        if self.action_matches != (self.expected_action == self.request_action):
+            raise ValueError("action_matches does not match the compared Actions")
+        if self.resource_matches != (
+            self.expected_resource == self.request_resource
+        ):
+            raise ValueError("resource_matches does not match the compared Resources")
+
+        evaluations = _canonical_bound_evaluations(self.bound_evaluations)
+        object.__setattr__(self, "bound_evaluations", evaluations)
+
+        bound_statuses = tuple(evaluation.status for evaluation in evaluations)
+        if not self.action_matches:
+            expected_status = AuthorityApplicabilityStatus.ACTION_MISMATCH
+        elif not self.resource_matches:
+            expected_status = AuthorityApplicabilityStatus.RESOURCE_MISMATCH
+        elif AuthorityApplicabilityStatus.MISSING_CONTEXT in bound_statuses:
+            expected_status = AuthorityApplicabilityStatus.MISSING_CONTEXT
+        elif AuthorityApplicabilityStatus.TYPE_ERROR in bound_statuses:
+            expected_status = AuthorityApplicabilityStatus.TYPE_ERROR
+        elif AuthorityApplicabilityStatus.BOUND_EXCEEDED in bound_statuses:
+            expected_status = AuthorityApplicabilityStatus.BOUND_EXCEEDED
+        else:
+            expected_status = AuthorityApplicabilityStatus.APPLICABLE
+
+        if self.status is not expected_status:
+            raise ValueError(
+                "applicability status does not match comparison evidence"
+            )
+
+
 class Outcome(str, Enum):
     """The exhaustive terminal outcomes of authorization evaluation."""
 
@@ -891,22 +1052,61 @@ class DecisionEvidence:
     """Machine-readable evidence supporting a decision."""
 
     policy_bundle_digest: Sha256Digest
+    request_digest: Sha256Digest
     rule_evaluations: tuple[RuleEvaluation, ...] = ()
-    request_authority: Authority | None = None
+    authority_applicability: AuthorityApplicabilityResult | None = None
 
     def __post_init__(self) -> None:
         if type(self.policy_bundle_digest) is not Sha256Digest:
             raise TypeError("policy_bundle_digest must be a Sha256Digest")
+        if type(self.request_digest) is not Sha256Digest:
+            raise TypeError("request_digest must be a Sha256Digest")
         if (
-            self.request_authority is not None
-            and type(self.request_authority) is not Authority
+            self.authority_applicability is not None
+            and type(self.authority_applicability)
+            is not AuthorityApplicabilityResult
         ):
-            raise TypeError("request_authority must be an Authority or None")
+            raise TypeError(
+                "authority_applicability must be an "
+                "AuthorityApplicabilityResult or None"
+            )
+        if (
+            self.authority_applicability is not None
+            and self.authority_applicability.request_digest
+            != self.request_digest
+        ):
+            raise ValueError(
+                "authority applicability must bind the evidence request digest"
+            )
         object.__setattr__(
             self,
             "rule_evaluations",
             _canonical_rule_evaluations(self.rule_evaluations),
         )
+
+    @property
+    def authority_chain_digest(self) -> Sha256Digest | None:
+        """Return the exact validated delegation-chain digest, if supplied."""
+
+        if self.authority_applicability is None:
+            return None
+        return self.authority_applicability.chain_digest
+
+    @property
+    def authority_state_digest(self) -> Sha256Digest | None:
+        """Return the exact validation-state digest, if supplied."""
+
+        if self.authority_applicability is None:
+            return None
+        return self.authority_applicability.state_digest
+
+    @property
+    def effective_grant_id(self) -> str | None:
+        """Return the effective leaf Grant identifier, if supplied."""
+
+        if self.authority_applicability is None:
+            return None
+        return self.authority_applicability.effective_grant_id
 
     @property
     def matched_policy_ids(self) -> tuple[str, ...]:
@@ -1022,5 +1222,12 @@ class Decision:
         if self.outcome is not Outcome.DENY:
             if not self.evidence.matched_rule_ids:
                 raise ValueError("non-deny decisions require a matched rule")
-            if self.evidence.request_authority is None:
-                raise ValueError("non-deny decisions require request authority")
+            applicability = self.evidence.authority_applicability
+            if (
+                applicability is None
+                or applicability.status
+                is not AuthorityApplicabilityStatus.APPLICABLE
+            ):
+                raise ValueError(
+                    "non-deny decisions require applicable validated authority"
+                )
