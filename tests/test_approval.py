@@ -14,6 +14,7 @@ from nest_authz import (
     ApprovalRequirementStatus,
     ApprovalStatus,
     ApprovalTransitionError,
+    ApproverSubjectPrincipalBinding,
     AuthorityGrant,
     AuthorityScope,
     AuthorityValidationStatus,
@@ -24,6 +25,7 @@ from nest_authz import (
     DelegationChain,
     FieldNamespace,
     FieldReference,
+    ExecutionAuthorizationStatus,
     Outcome,
     PendingApproval,
     Policy,
@@ -38,21 +40,34 @@ from nest_authz import (
     SubjectPrincipalBinding,
     approve_requirement,
     canonical_bytes,
+    check_approver_authorization,
     consume_approval,
     create_decision_receipt,
     create_pending_approval,
     evaluate,
     expire_requirement,
     reject_requirement,
+    revalidate_for_execution,
     sha256_digest,
     validate_authority,
 )
 
 
-OWNER = ApprovalRequirement("OWNER_APPROVAL")
-SECURITY = ApprovalRequirement("SECURITY_APPROVAL")
 OWNER_PRINCIPAL = Principal("principal:owner-approver")
 SECURITY_PRINCIPAL = Principal("principal:security-approver")
+OWNER = ApprovalRequirement("OWNER_APPROVAL", (OWNER_PRINCIPAL,))
+SECURITY = ApprovalRequirement("SECURITY_APPROVAL", (SECURITY_PRINCIPAL,))
+
+
+def _approver_authorization(requirement, principal):
+    actor = Subject(f"approver:{principal.identifier}")
+    binding = ApproverSubjectPrincipalBinding(actor, principal)
+    return check_approver_authorization(
+        actor,
+        binding,
+        requirement,
+        requirement,
+    )
 
 
 def _authorization(
@@ -151,6 +166,42 @@ def _state_for(approval, requirement):
         if state.requirement == requirement:
             return state
     raise AssertionError("requirement state not found")
+
+
+def _revalidate(original_values, approved, current_values=None):
+    current = current_values or original_values
+    return revalidate_for_execution(
+        original_values["receipt"],
+        approved,
+        current["request"],
+        current["bundle"],
+        current["chain"],
+        current["state"],
+        current["binding"],
+    )
+
+
+def _fully_approved(values):
+    approval = create_pending_approval(values["receipt"], 50)
+    for offset, requirement in enumerate(
+        values["receipt"].approval_requirements,
+        start=1,
+    ):
+        principal = requirement.allowed_principals[0]
+        approval = approve_requirement(
+            approval,
+            requirement,
+            _approver_authorization(requirement, principal),
+            50 + offset,
+        )
+    return approval
+
+
+def _execution_permit(values, approved):
+    result = _revalidate(values, approved)
+    if result.execution_permit is None:
+        raise AssertionError(f"execution revalidation failed: {result.status}")
+    return result.execution_permit
 
 
 class DecisionReceiptTests(unittest.TestCase):
@@ -291,7 +342,7 @@ class DecisionReceiptTests(unittest.TestCase):
         pending = create_pending_approval(receipt, 50)
         state = pending.requirement_states[0]
 
-        self.assertIn(b"nest-authz/decision-receipt@1", canonical_bytes(receipt))
+        self.assertIn(b"nest-authz/decision-receipt@2", canonical_bytes(receipt))
         self.assertIn(
             b"nest-authz/approval-requirement-status@1",
             canonical_bytes(state.status),
@@ -301,11 +352,11 @@ class DecisionReceiptTests(unittest.TestCase):
             canonical_bytes(pending.status),
         )
         self.assertIn(
-            b"nest-authz/approval-requirement-state@1",
+            b"nest-authz/approval-requirement-state@2",
             canonical_bytes(state),
         )
         self.assertIn(
-            b"nest-authz/pending-approval@1",
+            b"nest-authz/pending-approval@2",
             canonical_bytes(pending),
         )
 
@@ -353,7 +404,7 @@ class ApprovalTransitionTests(unittest.TestCase):
             ApprovalRequirementState(
                 OWNER,
                 ApprovalRequirementStatus.PENDING,
-                OWNER_PRINCIPAL,
+                _approver_authorization(OWNER, OWNER_PRINCIPAL),
                 50,
             )
         with self.assertRaises(TypeError):
@@ -368,7 +419,7 @@ class ApprovalTransitionTests(unittest.TestCase):
         approval = approve_requirement(
             _pending(),
             OWNER,
-            OWNER_PRINCIPAL,
+            _approver_authorization(OWNER, OWNER_PRINCIPAL),
             51,
         )
 
@@ -386,7 +437,7 @@ class ApprovalTransitionTests(unittest.TestCase):
         approval = reject_requirement(
             _pending(),
             OWNER,
-            OWNER_PRINCIPAL,
+            _approver_authorization(OWNER, OWNER_PRINCIPAL),
             51,
         )
 
@@ -406,7 +457,7 @@ class ApprovalTransitionTests(unittest.TestCase):
         approval = approve_requirement(
             _pending(requirements=(OWNER, SECURITY)),
             OWNER,
-            OWNER_PRINCIPAL,
+            _approver_authorization(OWNER, OWNER_PRINCIPAL),
             51,
         )
 
@@ -416,13 +467,13 @@ class ApprovalTransitionTests(unittest.TestCase):
         approval = approve_requirement(
             _pending(requirements=(OWNER, SECURITY)),
             OWNER,
-            OWNER_PRINCIPAL,
+            _approver_authorization(OWNER, OWNER_PRINCIPAL),
             51,
         )
         approval = approve_requirement(
             approval,
             SECURITY,
-            SECURITY_PRINCIPAL,
+            _approver_authorization(SECURITY, SECURITY_PRINCIPAL),
             52,
         )
 
@@ -432,13 +483,13 @@ class ApprovalTransitionTests(unittest.TestCase):
         approval = approve_requirement(
             _pending(requirements=(OWNER, SECURITY)),
             OWNER,
-            OWNER_PRINCIPAL,
+            _approver_authorization(OWNER, OWNER_PRINCIPAL),
             51,
         )
         approval = reject_requirement(
             approval,
             SECURITY,
-            SECURITY_PRINCIPAL,
+            _approver_authorization(SECURITY, SECURITY_PRINCIPAL),
             52,
         )
 
@@ -453,67 +504,90 @@ class ApprovalTransitionTests(unittest.TestCase):
         approval = reject_requirement(
             approval,
             OWNER,
-            OWNER_PRINCIPAL,
+            _approver_authorization(OWNER, OWNER_PRINCIPAL),
             52,
         )
 
         self.assertIs(approval.status, ApprovalStatus.REJECTED)
 
     def test_approved_overall_state_can_be_consumed(self):
-        approval = approve_requirement(
-            _pending(),
-            OWNER,
-            OWNER_PRINCIPAL,
-            51,
-        )
+        values = _authorization()
+        approval = _fully_approved(values)
+        permit = _execution_permit(values, approval)
 
-        consumed = consume_approval(approval, approval.receipt, 52)
+        consumed = consume_approval(approval, permit, 52)
 
         self.assertIs(consumed.status, ApprovalStatus.CONSUMED)
         self.assertEqual(consumed.consumed_at, 52)
+        self.assertEqual(
+            consumed.execution_permit_digest,
+            sha256_digest(permit),
+        )
 
     def test_pending_cannot_be_consumed(self):
-        approval = _pending()
+        values = _authorization()
+        approval = create_pending_approval(values["receipt"], 50)
+        approved = _fully_approved(values)
+        permit = _execution_permit(values, approved)
 
         with self.assertRaises(ApprovalTransitionError):
-            consume_approval(approval, approval.receipt, 51)
+            consume_approval(approval, permit, 51)
 
     def test_rejected_cannot_be_consumed(self):
+        values = _authorization()
         approval = reject_requirement(
-            _pending(), OWNER, OWNER_PRINCIPAL, 51
+            create_pending_approval(values["receipt"], 50),
+            OWNER,
+            _approver_authorization(OWNER, OWNER_PRINCIPAL),
+            51,
         )
+        approved = _fully_approved(values)
+        permit = _execution_permit(values, approved)
 
         with self.assertRaises(ApprovalTransitionError):
-            consume_approval(approval, approval.receipt, 52)
+            consume_approval(approval, permit, 52)
 
     def test_expired_cannot_be_consumed(self):
-        approval = expire_requirement(_pending(), OWNER, 51)
+        values = _authorization()
+        pending = create_pending_approval(values["receipt"], 50)
+        approval = expire_requirement(pending, OWNER, 51)
+        approved = _fully_approved(values)
+        permit = _execution_permit(values, approved)
 
         with self.assertRaises(ApprovalTransitionError):
-            consume_approval(approval, approval.receipt, 52)
+            consume_approval(approval, permit, 52)
 
     def test_consumed_cannot_transition_again(self):
-        approval = approve_requirement(
-            _pending(), OWNER, OWNER_PRINCIPAL, 51
-        )
-        consumed = consume_approval(approval, approval.receipt, 52)
+        values = _authorization()
+        approval = _fully_approved(values)
+        permit = _execution_permit(values, approval)
+        consumed = consume_approval(approval, permit, 52)
 
         with self.assertRaises(ApprovalTransitionError):
-            consume_approval(consumed, consumed.receipt, 53)
+            consume_approval(consumed, permit, 53)
         with self.assertRaises(ApprovalTransitionError):
             expire_requirement(consumed, OWNER, 53)
 
     def test_approved_requirement_is_terminal(self):
         approval = approve_requirement(
-            _pending(), OWNER, OWNER_PRINCIPAL, 51
+            _pending(),
+            OWNER,
+            _approver_authorization(OWNER, OWNER_PRINCIPAL),
+            51,
         )
 
         for transition in (
             lambda: approve_requirement(
-                approval, OWNER, OWNER_PRINCIPAL, 52
+                approval,
+                OWNER,
+                _approver_authorization(OWNER, OWNER_PRINCIPAL),
+                52,
             ),
             lambda: reject_requirement(
-                approval, OWNER, OWNER_PRINCIPAL, 52
+                approval,
+                OWNER,
+                _approver_authorization(OWNER, OWNER_PRINCIPAL),
+                52,
             ),
             lambda: expire_requirement(approval, OWNER, 52),
         ):
@@ -523,23 +597,37 @@ class ApprovalTransitionTests(unittest.TestCase):
 
     def test_rejected_requirement_is_terminal(self):
         approval = reject_requirement(
-            _pending(), OWNER, OWNER_PRINCIPAL, 51
+            _pending(),
+            OWNER,
+            _approver_authorization(OWNER, OWNER_PRINCIPAL),
+            51,
         )
 
         with self.assertRaises(ApprovalTransitionError):
-            approve_requirement(approval, OWNER, OWNER_PRINCIPAL, 52)
+            approve_requirement(
+                approval,
+                OWNER,
+                _approver_authorization(OWNER, OWNER_PRINCIPAL),
+                52,
+            )
 
     def test_expired_requirement_is_terminal(self):
         approval = expire_requirement(_pending(), OWNER, 51)
 
         with self.assertRaises(ApprovalTransitionError):
-            approve_requirement(approval, OWNER, OWNER_PRINCIPAL, 52)
+            approve_requirement(
+                approval,
+                OWNER,
+                _approver_authorization(OWNER, OWNER_PRINCIPAL),
+                52,
+            )
 
     def test_repeated_transition_from_same_input_is_equal(self):
         pending = _pending()
 
-        first = approve_requirement(pending, OWNER, OWNER_PRINCIPAL, 51)
-        second = approve_requirement(pending, OWNER, OWNER_PRINCIPAL, 51)
+        authorization = _approver_authorization(OWNER, OWNER_PRINCIPAL)
+        first = approve_requirement(pending, OWNER, authorization, 51)
+        second = approve_requirement(pending, OWNER, authorization, 51)
 
         self.assertEqual(first, second)
         self.assertEqual(canonical_bytes(first), canonical_bytes(second))
@@ -548,14 +636,19 @@ class ApprovalTransitionTests(unittest.TestCase):
         pending = _pending(logical_time=50)
 
         with self.assertRaises(ApprovalTransitionError):
-            approve_requirement(pending, OWNER, OWNER_PRINCIPAL, 49)
+            approve_requirement(
+                pending,
+                OWNER,
+                _approver_authorization(OWNER, OWNER_PRINCIPAL),
+                49,
+            )
 
     def test_unknown_requirement_cannot_transition(self):
         with self.assertRaises(ApprovalTransitionError):
             approve_requirement(
                 _pending(),
                 SECURITY,
-                SECURITY_PRINCIPAL,
+                _approver_authorization(SECURITY, SECURITY_PRINCIPAL),
                 51,
             )
 
@@ -566,7 +659,7 @@ class ApprovalAdversarialTests(unittest.TestCase):
         return approve_requirement(
             pending,
             OWNER,
-            OWNER_PRINCIPAL,
+            _approver_authorization(OWNER, OWNER_PRINCIPAL),
             51,
         )
 
@@ -575,8 +668,13 @@ class ApprovalAdversarialTests(unittest.TestCase):
         second = _authorization(policy_id="policy:b")
         approved = self._approved(first)
 
-        with self.assertRaisesRegex(ApprovalTransitionError, "receipt"):
-            consume_approval(approved, second["receipt"], 52)
+        result = _revalidate(first, approved, second)
+
+        self.assertIs(
+            result.status,
+            ExecutionAuthorizationStatus.POLICY_BUNDLE_MISMATCH,
+        )
+        self.assertIsNone(result.execution_permit)
 
     def test_stale_policy_approval_is_rejected(self):
         original = _authorization(policy_id="policy:a")
@@ -587,8 +685,12 @@ class ApprovalAdversarialTests(unittest.TestCase):
             approved.receipt.policy_bundle_digest,
             changed["receipt"].policy_bundle_digest,
         )
-        with self.assertRaises(ApprovalTransitionError):
-            consume_approval(approved, changed["receipt"], 52)
+        result = _revalidate(original, approved, changed)
+
+        self.assertIs(
+            result.status,
+            ExecutionAuthorizationStatus.POLICY_BUNDLE_MISMATCH,
+        )
 
     def test_revoked_authority_after_approval_cannot_be_revived(self):
         original = _authorization()
@@ -600,8 +702,12 @@ class ApprovalAdversarialTests(unittest.TestCase):
             AuthorityValidationStatus.REVOKED,
         )
         self.assertIs(revoked["decision"].outcome, Outcome.DENY)
-        with self.assertRaises(ApprovalTransitionError):
-            consume_approval(approved, revoked["receipt"], 52)
+        result = _revalidate(original, approved, revoked)
+
+        self.assertIs(
+            result.status,
+            ExecutionAuthorizationStatus.AUTHORITY_INVALID,
+        )
 
     def test_modified_request_cannot_reuse_approval(self):
         original = _authorization(amount=8000)
@@ -612,20 +718,25 @@ class ApprovalAdversarialTests(unittest.TestCase):
             approved.receipt.request_digest,
             modified["receipt"].request_digest,
         )
-        with self.assertRaises(ApprovalTransitionError):
-            consume_approval(approved, modified["receipt"], 52)
+        result = _revalidate(original, approved, modified)
+
+        self.assertIs(
+            result.status,
+            ExecutionAuthorizationStatus.REQUEST_MISMATCH,
+        )
 
     def test_consumed_approval_replay_fails_deterministically(self):
         values = _authorization()
         approved = self._approved(values)
-        consumed = consume_approval(approved, values["receipt"], 52)
+        permit = _execution_permit(values, approved)
+        consumed = consume_approval(approved, permit, 52)
 
         for _ in range(2):
             with self.assertRaisesRegex(
                 ApprovalTransitionError,
                 "consumed",
             ):
-                consume_approval(consumed, values["receipt"], 53)
+                consume_approval(consumed, permit, 53)
 
     def test_python_hash_seed_does_not_change_receipt_or_approval_identity(self):
         script = "\n".join(
@@ -636,13 +747,17 @@ class ApprovalAdversarialTests(unittest.TestCase):
                 "authority = validate_authority(DelegationChain((grant,)), AuthorizationState(50)).verified_authority",
                 "binding = SubjectPrincipalBinding(Subject('agent:alice'), Principal('principal:alice'))",
                 "condition = Condition('action', FieldReference(FieldNamespace.ACTION, 'name'), ConditionOperator.EQUALS, 'payments.transfer')",
-                "requirement = ApprovalRequirement('OWNER_APPROVAL')",
+                "approver = Principal('principal:owner')",
+                "requirement = ApprovalRequirement('OWNER_APPROVAL', (approver,))",
                 "rule = Rule('rule:approve', RuleEffect.APPROVAL_REQUIRED, (condition,), approval_requirements=(requirement,))",
                 "bundle = PolicyBundle((Policy('policy:payments', (rule,)),))",
                 "decision = evaluate(request, bundle, authority, binding)",
                 "receipt = create_decision_receipt(decision)",
                 "pending = create_pending_approval(receipt, 50)",
-                "approved = approve_requirement(pending, requirement, Principal('principal:owner'), 51)",
+                "actor = Subject('approver:owner')",
+                "approver_binding = ApproverSubjectPrincipalBinding(actor, approver)",
+                "authorization = check_approver_authorization(actor, approver_binding, requirement, requirement)",
+                "approved = approve_requirement(pending, requirement, authorization, 51)",
                 "print(str(sha256_digest(receipt)))",
                 "print(canonical_bytes(receipt).hex())",
                 "print(str(sha256_digest(approved)))",

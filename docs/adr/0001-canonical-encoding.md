@@ -65,6 +65,9 @@ decision have a canonical representation:
 - `Reason`
 - `Obligation`
 - `ApprovalRequirement`
+- `ApproverSubjectPrincipalBinding`
+- `ApproverAuthorizationStatus`
+- `ApproverAuthorizationResult`
 - `ApprovalRequirementStatus`
 - `ApprovalStatus`
 - `ApprovalRequirementState`
@@ -84,6 +87,9 @@ decision have a canonical representation:
 - `AuthorityApplicabilityStatus`
 - `AuthorityBoundEvaluation`
 - `AuthorityApplicabilityResult`
+- `ExecutionAuthorizationStatus`
+- `ExecutionAuthorizationResult`
+- `ExecutionPermit`
 
 The public operations are:
 
@@ -143,7 +149,10 @@ Decision for exact-request and validated-authority binding.
 
 ADR 0007 adds subject-principal holder-binding records and advances the affected
 request and decision schemas. ADR 0008 adds decision-receipt and approval-state
-records without changing an existing schema contract.
+records without changing an existing schema contract. ADR 0009 adds explicit
+approver authorization and fresh execution-revalidation records, adds exact
+allowed Principals to approval requirements, and explicitly advances every
+affected approval, policy, decision, receipt, and pending-state schema.
 
 Map keys are strings. Entries are sorted lexicographically by the strict UTF-8
 bytes of their keys. The serialized map key is still a complete `S` frame, so
@@ -162,6 +171,7 @@ semantic meaning and their keys are sorted only for canonical serialization:
 - authority attributes;
 - obligation parameters;
 - approval-requirement parameters;
+- allowed Principals within an approval requirement;
 - decision-evidence condition results; and
 - policies within a policy bundle;
 - rules within a policy;
@@ -194,6 +204,11 @@ ADR 0008 also declares approval-requirement-state ordering non-semantic because
 each state is keyed by its exact approval requirement. `PendingApproval`
 canonicalizes those states with the same ordering as the receipt requirements.
 The receipt itself preserves no caller-controlled collection ordering.
+
+ADR 0009 declares each requirement's allowed-Principal collection
+non-semantic. It is sorted by strict UTF-8 Principal identifier bytes before
+storage and encoding. Execution revalidation records preserve typed evidence;
+they do not depend on caller collection order.
 
 ## String and Unicode Handling
 

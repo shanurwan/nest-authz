@@ -109,7 +109,12 @@ def _rule(
     requirements = approval_requirements
     if requirements is None:
         requirements = (
-            (ApprovalRequirement("OWNER_APPROVAL"),)
+            (
+                ApprovalRequirement(
+                    "OWNER_APPROVAL",
+                    (Principal("principal:owner-approver"),),
+                ),
+            )
             if effect is RuleEffect.APPROVAL_REQUIRED
             else ()
         )
@@ -177,8 +182,14 @@ class EvaluatorOutcomeTests(unittest.TestCase):
 
     def test_matching_approval_returns_all_requirements(self):
         requirements = (
-            ApprovalRequirement("SECURITY_APPROVAL"),
-            ApprovalRequirement("OWNER_APPROVAL"),
+            ApprovalRequirement(
+                "SECURITY_APPROVAL",
+                (Principal("principal:security-approver"),),
+            ),
+            ApprovalRequirement(
+                "OWNER_APPROVAL",
+                (Principal("principal:owner-approver"),),
+            ),
         )
         decision = evaluate(
             _request({"allowed": True}),
@@ -195,8 +206,14 @@ class EvaluatorOutcomeTests(unittest.TestCase):
         self.assertEqual(
             decision.approval_requirements,
             (
-                ApprovalRequirement("OWNER_APPROVAL"),
-                ApprovalRequirement("SECURITY_APPROVAL"),
+                ApprovalRequirement(
+                    "OWNER_APPROVAL",
+                    (Principal("principal:owner-approver"),),
+                ),
+                ApprovalRequirement(
+                    "SECURITY_APPROVAL",
+                    (Principal("principal:security-approver"),),
+                ),
             ),
         )
 
@@ -579,8 +596,14 @@ class EvaluatorConditionTests(unittest.TestCase):
 
 class EvaluatorAggregationAndEvidenceTests(unittest.TestCase):
     def test_multiple_approval_requirements_survive_combination(self):
-        owner = ApprovalRequirement("OWNER_APPROVAL")
-        security = ApprovalRequirement("SECURITY_APPROVAL")
+        owner = ApprovalRequirement(
+            "OWNER_APPROVAL",
+            (Principal("principal:owner-approver"),),
+        )
+        security = ApprovalRequirement(
+            "SECURITY_APPROVAL",
+            (Principal("principal:security-approver"),),
+        )
         first = _rule(
             "rule:approval:a",
             RuleEffect.APPROVAL_REQUIRED,

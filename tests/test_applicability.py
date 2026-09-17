@@ -104,7 +104,12 @@ def _bundle(effect=RuleEffect.PERMIT):
         "agent:7",
     )
     approvals = (
-        (ApprovalRequirement("OWNER_APPROVAL"),)
+        (
+            ApprovalRequirement(
+                "OWNER_APPROVAL",
+                (Principal("principal:owner-approver"),),
+            ),
+        )
         if effect is RuleEffect.APPROVAL_REQUIRED
         else ()
     )
@@ -414,7 +419,7 @@ class AuthorityApplicabilityTests(unittest.TestCase):
         decision = evaluate(_request(), _bundle(), _validated_authority())
         decision_bytes = canonical_bytes(decision)
         self.assertIn(b"nest-authz/decision-evidence@5", decision_bytes)
-        self.assertIn(b"nest-authz/decision@4", decision_bytes)
+        self.assertIn(b"nest-authz/decision@5", decision_bytes)
 
     def test_applicability_and_evaluator_read_no_external_state(self):
         prohibited_import_roots = {

@@ -204,6 +204,27 @@ The pure in-memory state machine does not prevent distributed double
 consumption. Persistent enforcement will require an atomic compare-and-swap or
 transactional consume operation.
 
+### INV-013 — Approver Identity Is Not Approval Authority
+
+An authenticated or otherwise bound approver identity MUST NOT satisfy an
+approval requirement unless its exact `Principal` is explicitly allowed by
+that requirement. Requirement codes are descriptive identifiers, not roles,
+groups, or authority. Approval and rejection transitions MUST retain evidence
+that the actor binding and exact requirement were authorized.
+
+### INV-014 — Execution Requires Fresh Revalidation
+
+An approved receipt is an immutable audit snapshot, not current execution
+authority. Before consumption, the system MUST revalidate the current
+delegation state, holder binding, authority applicability, and policy result.
+Safe logical-time advancement and unrelated revocations need not invalidate
+approval, but expiry, relevant revocation, changed request, changed authority,
+changed policy, or changed approval requirements MUST prevent execution.
+
+Only successful fresh revalidation may produce an `ExecutionPermit`, and
+consumption MUST bind to that exact permit. Content identity and current
+security equivalence are distinct checks.
+
 ---
 
 ## Trust Boundary
@@ -223,6 +244,16 @@ All security-relevant claims used in an authorization decision must be validated
 authority gate. `SubjectPrincipalBinding` is currently trusted input from a
 future authentication adapter; the core does not yet prove IdP, JWT, DID,
 private-key, or NANDA identity authenticity.
+
+`ApproverSubjectPrincipalBinding` is likewise trusted input from a future
+identity adapter. The core proves only that the runtime actor matches that
+binding and that the bound exact `Principal` appears in the applicable
+requirement's allowlist. It does not authenticate the assertion.
+
+`ExecutionPermit` proves deterministic internal consistency after fresh
+revalidation. It is not signed, does not establish issuer authenticity or
+non-repudiation, and cannot by itself provide distributed single-use
+consumption.
 
 ---
 

@@ -11,6 +11,9 @@ from .domain import (
     ApprovalRequirementState,
     ApprovalRequirementStatus,
     ApprovalStatus,
+    ApproverAuthorizationResult,
+    ApproverAuthorizationStatus,
+    ApproverSubjectPrincipalBinding,
     AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityApplicabilityStatus,
@@ -28,6 +31,9 @@ from .domain import (
     DecisionEvidence,
     DecisionReceipt,
     DelegationChain,
+    ExecutionAuthorizationResult,
+    ExecutionAuthorizationStatus,
+    ExecutionPermit,
     Obligation,
     Outcome,
     FieldNamespace,
@@ -215,6 +221,14 @@ def _encode_domain(value: object) -> bytes:
     if value_type is SubjectPrincipalBinding:
         return _encode_record(
             "nest-authz/subject-principal-binding@1",
+            (
+                ("subject", _encode_domain(value.subject)),
+                ("principal", _encode_domain(value.principal)),
+            ),
+        )
+    if value_type is ApproverSubjectPrincipalBinding:
+        return _encode_record(
+            "nest-authz/approver-subject-principal-binding@1",
             (
                 ("subject", _encode_domain(value.subject)),
                 ("principal", _encode_domain(value.principal)),
@@ -448,10 +462,36 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is ApprovalRequirement:
         return _encode_record(
-            "nest-authz/approval-requirement@1",
+            "nest-authz/approval-requirement@2",
             (
                 ("code", _encode_string(value.code)),
+                (
+                    "allowed_principals",
+                    _encode_sequence(value.allowed_principals),
+                ),
                 ("parameters", _encode_scalar_map(value.parameters)),
+            ),
+        )
+    if value_type is ApproverAuthorizationStatus:
+        return _encode_record(
+            "nest-authz/approver-authorization-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is ApproverAuthorizationResult:
+        return _encode_record(
+            "nest-authz/approver-authorization-result@1",
+            (
+                ("status", _encode_domain(value.status)),
+                ("actor", _encode_domain(value.actor)),
+                ("binding", _encode_domain(value.binding)),
+                (
+                    "required_requirement",
+                    _encode_domain(value.required_requirement),
+                ),
+                (
+                    "attempted_requirement",
+                    _encode_domain(value.attempted_requirement),
+                ),
             ),
         )
     if value_type is ApprovalRequirementStatus:
@@ -466,11 +506,14 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is ApprovalRequirementState:
         return _encode_record(
-            "nest-authz/approval-requirement-state@1",
+            "nest-authz/approval-requirement-state@2",
             (
                 ("requirement", _encode_domain(value.requirement)),
                 ("status", _encode_domain(value.status)),
-                ("decided_by", _encode_optional_domain(value.decided_by)),
+                (
+                    "authorization",
+                    _encode_optional_domain(value.authorization),
+                ),
                 ("logical_time", _encode_integer(value.logical_time)),
             ),
         )
@@ -486,7 +529,7 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is Rule:
         return _encode_record(
-            "nest-authz/rule@2",
+            "nest-authz/rule@3",
             (
                 ("identifier", _encode_string(value.identifier)),
                 ("effect", _encode_domain(value.effect)),
@@ -500,7 +543,7 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is Policy:
         return _encode_record(
-            "nest-authz/policy@2",
+            "nest-authz/policy@3",
             (
                 ("identifier", _encode_string(value.identifier)),
                 ("rules", _encode_sequence(value.rules)),
@@ -508,7 +551,7 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is PolicyBundle:
         return _encode_record(
-            "nest-authz/policy-bundle@2",
+            "nest-authz/policy-bundle@3",
             (
                 (
                     "combining_algorithm",
@@ -553,7 +596,7 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is Decision:
         return _encode_record(
-            "nest-authz/decision@4",
+            "nest-authz/decision@5",
             (
                 ("outcome", _encode_domain(value.outcome)),
                 ("reasons", _encode_sequence(value.reasons)),
@@ -567,7 +610,7 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is DecisionReceipt:
         return _encode_record(
-            "nest-authz/decision-receipt@1",
+            "nest-authz/decision-receipt@2",
             (
                 ("request_digest", _encode_domain(value.request_digest)),
                 (
@@ -608,7 +651,7 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is PendingApproval:
         return _encode_record(
-            "nest-authz/pending-approval@1",
+            "nest-authz/pending-approval@2",
             (
                 ("receipt", _encode_domain(value.receipt)),
                 ("receipt_digest", _encode_domain(value.receipt_digest)),
@@ -618,7 +661,107 @@ def _encode_domain(value: object) -> bytes:
                 ),
                 ("logical_time", _encode_integer(value.logical_time)),
                 ("consumed_at", _encode_scalar(value.consumed_at)),
+                (
+                    "execution_permit_digest",
+                    _encode_optional_domain(value.execution_permit_digest),
+                ),
                 ("status", _encode_domain(value.status)),
+            ),
+        )
+    if value_type is ExecutionAuthorizationStatus:
+        return _encode_record(
+            "nest-authz/execution-authorization-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is ExecutionPermit:
+        return _encode_record(
+            "nest-authz/execution-permit@1",
+            (
+                (
+                    "original_receipt_digest",
+                    _encode_domain(value.original_receipt_digest),
+                ),
+                (
+                    "approved_state_digest",
+                    _encode_domain(value.approved_state_digest),
+                ),
+                (
+                    "current_request_digest",
+                    _encode_domain(value.current_request_digest),
+                ),
+                (
+                    "current_policy_bundle_digest",
+                    _encode_domain(value.current_policy_bundle_digest),
+                ),
+                (
+                    "current_delegation_chain_digest",
+                    _encode_domain(value.current_delegation_chain_digest),
+                ),
+                (
+                    "current_authorization_state_digest",
+                    _encode_domain(value.current_authorization_state_digest),
+                ),
+                (
+                    "current_validated_authority_digest",
+                    _encode_domain(value.current_validated_authority_digest),
+                ),
+                (
+                    "subject_authority_binding",
+                    _encode_domain(value.subject_authority_binding),
+                ),
+                (
+                    "authority_applicability",
+                    _encode_domain(value.authority_applicability),
+                ),
+                ("decision", _encode_domain(value.decision)),
+            ),
+        )
+    if value_type is ExecutionAuthorizationResult:
+        return _encode_record(
+            "nest-authz/execution-authorization-result@1",
+            (
+                ("status", _encode_domain(value.status)),
+                (
+                    "original_receipt_digest",
+                    _encode_domain(value.original_receipt_digest),
+                ),
+                (
+                    "approved_state_digest",
+                    _encode_domain(value.approved_state_digest),
+                ),
+                (
+                    "current_request_digest",
+                    _encode_domain(value.current_request_digest),
+                ),
+                (
+                    "current_policy_bundle_digest",
+                    _encode_domain(value.current_policy_bundle_digest),
+                ),
+                (
+                    "current_delegation_chain_digest",
+                    _encode_domain(value.current_delegation_chain_digest),
+                ),
+                (
+                    "current_authorization_state_digest",
+                    _encode_domain(value.current_authorization_state_digest),
+                ),
+                (
+                    "authority_validation",
+                    _encode_domain(value.authority_validation),
+                ),
+                (
+                    "subject_authority_binding",
+                    _encode_optional_domain(value.subject_authority_binding),
+                ),
+                (
+                    "authority_applicability",
+                    _encode_optional_domain(value.authority_applicability),
+                ),
+                ("decision", _encode_domain(value.decision)),
+                (
+                    "execution_permit",
+                    _encode_optional_domain(value.execution_permit),
+                ),
             ),
         )
 

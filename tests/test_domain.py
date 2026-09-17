@@ -6,6 +6,8 @@ from nest_authz import (
     Action,
     ApprovalRequirement,
     ApprovalRequirementState,
+    ApproverAuthorizationResult,
+    ApproverSubjectPrincipalBinding,
     AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityBoundEvaluation,
@@ -21,6 +23,8 @@ from nest_authz import (
     DecisionEvidence,
     DecisionReceipt,
     DelegationChain,
+    ExecutionAuthorizationResult,
+    ExecutionPermit,
     Obligation,
     Outcome,
     FieldNamespace,
@@ -66,6 +70,8 @@ _PUBLIC_DATACLASS_DOMAIN_RECORDS = (
     Obligation,
     ApprovalRequirement,
     ApprovalRequirementState,
+    ApproverSubjectPrincipalBinding,
+    ApproverAuthorizationResult,
     Rule,
     Policy,
     PolicyBundle,
@@ -74,6 +80,8 @@ _PUBLIC_DATACLASS_DOMAIN_RECORDS = (
     Decision,
     DecisionReceipt,
     PendingApproval,
+    ExecutionPermit,
+    ExecutionAuthorizationResult,
     Principal,
     AuthorityScope,
     AuthorityGrant,
@@ -312,10 +320,15 @@ class DomainInvariantTests(unittest.TestCase):
         )
 
     def test_reason_and_instruction_codes_must_not_be_blank(self):
-        for factory in (Reason, Obligation, ApprovalRequirement):
+        for factory in (Reason, Obligation):
             with self.subTest(factory=factory.__name__):
                 with self.assertRaisesRegex(ValueError, "must not be blank"):
                     factory(" ")
+        with self.assertRaisesRegex(ValueError, "must not be blank"):
+            ApprovalRequirement(
+                " ",
+                (Principal("principal:approver"),),
+            )
 
     def test_evidence_requires_a_typed_policy_bundle_digest(self):
         with self.assertRaisesRegex(TypeError, "Sha256Digest"):
@@ -394,7 +407,12 @@ class DomainInvariantTests(unittest.TestCase):
     def test_non_deny_requires_matched_policy_and_authority(self):
         for outcome in (Outcome.PERMIT, Outcome.APPROVAL_REQUIRED):
             approvals = (
-                (ApprovalRequirement("OWNER_APPROVAL"),)
+                (
+                    ApprovalRequirement(
+                        "OWNER_APPROVAL",
+                        (Principal("principal:owner-approver"),),
+                    ),
+                )
                 if outcome is Outcome.APPROVAL_REQUIRED
                 else ()
             )
@@ -451,12 +469,23 @@ class DomainInvariantTests(unittest.TestCase):
                 outcome=Outcome.PERMIT,
                 reasons=(Reason("ALLOWED"),),
                 evidence=evidence,
-                approval_requirements=(ApprovalRequirement("OWNER_APPROVAL"),),
+                approval_requirements=(
+                    ApprovalRequirement(
+                        "OWNER_APPROVAL",
+                        (Principal("principal:owner-approver"),),
+                    ),
+                ),
             )
 
     def test_decision_approval_requirements_are_nonempty_canonical_and_copied(self):
-        owner = ApprovalRequirement("OWNER_APPROVAL")
-        security = ApprovalRequirement("SECURITY_APPROVAL")
+        owner = ApprovalRequirement(
+            "OWNER_APPROVAL",
+            (Principal("principal:owner-approver"),),
+        )
+        security = ApprovalRequirement(
+            "SECURITY_APPROVAL",
+            (Principal("principal:security-approver"),),
+        )
         requirements = [security, owner]
         evidence = DecisionEvidence(
             _policy_bundle_digest(),
@@ -472,7 +501,12 @@ class DomainInvariantTests(unittest.TestCase):
             evidence,
             approval_requirements=requirements,
         )
-        requirements.append(ApprovalRequirement("LATER_MUTATION"))
+        requirements.append(
+            ApprovalRequirement(
+                "LATER_MUTATION",
+                (Principal("principal:later-approver"),),
+            )
+        )
 
         self.assertEqual(decision.approval_requirements, (owner, security))
 

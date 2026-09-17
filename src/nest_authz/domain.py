@@ -107,6 +107,32 @@ class ApprovalStatus(Enum):
     CONSUMED = "CONSUMED"
 
 
+class ApproverAuthorizationStatus(Enum):
+    """The result of authorizing one actor for one approval requirement."""
+
+    AUTHORIZED = "AUTHORIZED"
+    SUBJECT_MISMATCH = "SUBJECT_MISMATCH"
+    PRINCIPAL_NOT_ALLOWED = "PRINCIPAL_NOT_ALLOWED"
+    REQUIREMENT_MISMATCH = "REQUIREMENT_MISMATCH"
+
+
+class ExecutionAuthorizationStatus(Enum):
+    """The result of fresh execution-time authorization revalidation."""
+
+    AUTHORIZED = "AUTHORIZED"
+    APPROVAL_NOT_APPROVED = "APPROVAL_NOT_APPROVED"
+    RECEIPT_MISMATCH = "RECEIPT_MISMATCH"
+    REQUEST_MISMATCH = "REQUEST_MISMATCH"
+    DELEGATION_CHAIN_MISMATCH = "DELEGATION_CHAIN_MISMATCH"
+    AUTHORITY_INVALID = "AUTHORITY_INVALID"
+    HOLDER_BINDING_FAILED = "HOLDER_BINDING_FAILED"
+    AUTHORITY_NOT_APPLICABLE = "AUTHORITY_NOT_APPLICABLE"
+    POLICY_DENIED = "POLICY_DENIED"
+    POLICY_REAUTHORIZATION_REQUIRED = "POLICY_REAUTHORIZATION_REQUIRED"
+    APPROVAL_REQUIREMENTS_CHANGED = "APPROVAL_REQUIREMENTS_CHANGED"
+    POLICY_BUNDLE_MISMATCH = "POLICY_BUNDLE_MISMATCH"
+
+
 _Scalar: TypeAlias = str | int | bool | None
 _Fields: TypeAlias = tuple[tuple[str, _Scalar], ...]
 _ConditionResults: TypeAlias = tuple[tuple[str, ConditionStatus], ...]
@@ -332,6 +358,20 @@ class SubjectPrincipalBinding:
             raise TypeError("binding subject must be a Subject")
         if type(self.principal) is not Principal:
             raise TypeError("binding principal must be a Principal")
+
+
+@dataclass(frozen=True, slots=True)
+class ApproverSubjectPrincipalBinding:
+    """A trusted-input assertion relating an approver Subject to a Principal."""
+
+    subject: Subject
+    principal: Principal
+
+    def __post_init__(self) -> None:
+        if type(self.subject) is not Subject:
+            raise TypeError("approver binding subject must be a Subject")
+        if type(self.principal) is not Principal:
+            raise TypeError("approver binding principal must be a Principal")
 
 
 @dataclass(frozen=True, slots=True)
@@ -951,14 +991,41 @@ class Obligation:
 
 @dataclass(frozen=True, slots=True)
 class ApprovalRequirement:
-    """A named human-approval condition that remains to be satisfied."""
+    """A named approval condition with an exact Principal allowlist."""
 
     code: str
+    allowed_principals: tuple[Principal, ...]
     parameters: _Fields = field(default=(), compare=False, hash=False)
     _typed_parameters: _TypedFields = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _non_blank(self.code, "approval requirement code")
+        principals = _typed_tuple(
+            self.allowed_principals,
+            Principal,
+            "allowed_principals",
+        )
+        if not principals:
+            raise ValueError(
+                "approval requirements must allow at least one Principal"
+            )
+        identifiers: set[str] = set()
+        for principal in principals:
+            if principal.identifier in identifiers:
+                raise ValueError(
+                    "allowed_principals must not contain duplicates"
+                )
+            identifiers.add(principal.identifier)
+        object.__setattr__(
+            self,
+            "allowed_principals",
+            tuple(
+                sorted(
+                    principals,
+                    key=lambda principal: principal.identifier.encode("utf-8"),
+                )
+            ),
+        )
         parameters = _canonical_fields(
             self.parameters,
             "approval requirement parameters",
@@ -976,6 +1043,10 @@ def _approval_requirement_sort_key(
 ) -> tuple[object, ...]:
     return (
         requirement.code.encode("utf-8"),
+        tuple(
+            principal.identifier.encode("utf-8")
+            for principal in requirement.allowed_principals
+        ),
         requirement._typed_parameters,
     )
 
@@ -997,12 +1068,60 @@ def _canonical_approval_requirements(
 
 
 @dataclass(frozen=True, slots=True)
+class ApproverAuthorizationResult:
+    """Deterministic evidence authorizing one approval attempt."""
+
+    status: ApproverAuthorizationStatus
+    actor: Subject
+    binding: ApproverSubjectPrincipalBinding
+    required_requirement: ApprovalRequirement
+    attempted_requirement: ApprovalRequirement
+
+    def __post_init__(self) -> None:
+        if type(self.status) is not ApproverAuthorizationStatus:
+            raise TypeError("status must be an ApproverAuthorizationStatus")
+        if type(self.actor) is not Subject:
+            raise TypeError("actor must be a Subject")
+        if type(self.binding) is not ApproverSubjectPrincipalBinding:
+            raise TypeError(
+                "binding must be an ApproverSubjectPrincipalBinding"
+            )
+        if type(self.required_requirement) is not ApprovalRequirement:
+            raise TypeError(
+                "required_requirement must be an ApprovalRequirement"
+            )
+        if type(self.attempted_requirement) is not ApprovalRequirement:
+            raise TypeError(
+                "attempted_requirement must be an ApprovalRequirement"
+            )
+
+        if self.required_requirement != self.attempted_requirement:
+            expected_status = ApproverAuthorizationStatus.REQUIREMENT_MISMATCH
+        elif self.actor != self.binding.subject:
+            expected_status = ApproverAuthorizationStatus.SUBJECT_MISMATCH
+        elif (
+            self.binding.principal
+            not in self.required_requirement.allowed_principals
+        ):
+            expected_status = (
+                ApproverAuthorizationStatus.PRINCIPAL_NOT_ALLOWED
+            )
+        else:
+            expected_status = ApproverAuthorizationStatus.AUTHORIZED
+
+        if self.status is not expected_status:
+            raise ValueError(
+                "approver authorization status does not match its evidence"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class ApprovalRequirementState:
     """The immutable state and logical-time evidence for one requirement."""
 
     requirement: ApprovalRequirement
     status: ApprovalRequirementStatus
-    decided_by: Principal | None
+    authorization: ApproverAuthorizationResult | None
     logical_time: int
 
     def __post_init__(self) -> None:
@@ -1010,20 +1129,50 @@ class ApprovalRequirementState:
             raise TypeError("requirement must be an ApprovalRequirement")
         if type(self.status) is not ApprovalRequirementStatus:
             raise TypeError("status must be an ApprovalRequirementStatus")
-        if self.decided_by is not None and type(self.decided_by) is not Principal:
-            raise TypeError("decided_by must be a Principal or None")
+        if (
+            self.authorization is not None
+            and type(self.authorization) is not ApproverAuthorizationResult
+        ):
+            raise TypeError(
+                "authorization must be an ApproverAuthorizationResult or None"
+            )
         if type(self.logical_time) is not int:
             raise TypeError("logical_time must be an exact integer")
 
-        requires_actor = self.status in (
+        requires_authorization = self.status in (
             ApprovalRequirementStatus.APPROVED,
             ApprovalRequirementStatus.REJECTED,
         )
-        if requires_actor != (self.decided_by is not None):
+        if requires_authorization != (self.authorization is not None):
             raise ValueError(
-                "decided_by must be present exactly for approved or "
+                "authorization must be present exactly for approved or "
                 "rejected requirements"
             )
+        if self.authorization is not None:
+            if (
+                self.authorization.status
+                is not ApproverAuthorizationStatus.AUTHORIZED
+            ):
+                raise ValueError(
+                    "requirement state authorization must be AUTHORIZED"
+                )
+            if (
+                self.authorization.required_requirement != self.requirement
+                or self.authorization.attempted_requirement
+                != self.requirement
+            ):
+                raise ValueError(
+                    "requirement state authorization must bind the exact "
+                    "requirement"
+                )
+
+    @property
+    def decided_by(self) -> Principal | None:
+        """Return the authorized approver or rejector Principal, if any."""
+
+        if self.authorization is None:
+            return None
+        return self.authorization.binding.principal
 
 
 def _canonical_approval_requirement_states(
@@ -1591,6 +1740,7 @@ class PendingApproval:
     requirement_states: tuple[ApprovalRequirementState, ...]
     logical_time: int
     consumed_at: int | None
+    execution_permit_digest: Sha256Digest | None
     status: ApprovalStatus
 
     def __init__(self, *args: object, **kwargs: object) -> None:
@@ -1607,6 +1757,7 @@ class PendingApproval:
         requirement_states: object,
         logical_time: int,
         consumed_at: int | None,
+        execution_permit_digest: Sha256Digest | None,
         _token: object,
     ) -> PendingApproval:
         if _token is not _PENDING_APPROVAL_TOKEN:
@@ -1650,8 +1801,16 @@ class PendingApproval:
                 raise ValueError(
                     "only fully approved requirements can be consumed"
                 )
+            if type(execution_permit_digest) is not Sha256Digest:
+                raise TypeError(
+                    "consumed approval requires an execution permit digest"
+                )
             status = ApprovalStatus.CONSUMED
         else:
+            if execution_permit_digest is not None:
+                raise ValueError(
+                    "unconsumed approval cannot carry an execution permit digest"
+                )
             if max(state.logical_time for state in states) != logical_time:
                 raise ValueError(
                     "approval logical time must equal its latest state time"
@@ -1674,6 +1833,11 @@ class PendingApproval:
         object.__setattr__(result, "requirement_states", states)
         object.__setattr__(result, "logical_time", logical_time)
         object.__setattr__(result, "consumed_at", consumed_at)
+        object.__setattr__(
+            result,
+            "execution_permit_digest",
+            execution_permit_digest,
+        )
         object.__setattr__(result, "status", status)
         return result
 
@@ -1684,3 +1848,315 @@ class PendingApproval:
         return tuple(
             state.requirement for state in self.requirement_states
         )
+
+
+_EXECUTION_PERMIT_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ExecutionPermit:
+    """Fresh internally consistent authority to consume one approval."""
+
+    original_receipt_digest: Sha256Digest
+    approved_state_digest: Sha256Digest
+    current_request_digest: Sha256Digest
+    current_policy_bundle_digest: Sha256Digest
+    current_delegation_chain_digest: Sha256Digest
+    current_authorization_state_digest: Sha256Digest
+    current_validated_authority_digest: Sha256Digest
+    subject_authority_binding: SubjectAuthorityBindingResult
+    authority_applicability: AuthorityApplicabilityResult
+    decision: Decision
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "ExecutionPermit can only be created by successful revalidation"
+        )
+
+    @classmethod
+    def _from_revalidation(
+        cls,
+        *,
+        original_receipt_digest: Sha256Digest,
+        approved_state_digest: Sha256Digest,
+        current_request_digest: Sha256Digest,
+        current_policy_bundle_digest: Sha256Digest,
+        current_delegation_chain_digest: Sha256Digest,
+        current_authorization_state_digest: Sha256Digest,
+        current_validated_authority_digest: Sha256Digest,
+        subject_authority_binding: SubjectAuthorityBindingResult,
+        authority_applicability: AuthorityApplicabilityResult,
+        decision: Decision,
+        _token: object,
+    ) -> ExecutionPermit:
+        if _token is not _EXECUTION_PERMIT_TOKEN:
+            raise TypeError("ExecutionPermit requires successful revalidation")
+        for field_name, digest in (
+            ("original_receipt_digest", original_receipt_digest),
+            ("approved_state_digest", approved_state_digest),
+            ("current_request_digest", current_request_digest),
+            ("current_policy_bundle_digest", current_policy_bundle_digest),
+            (
+                "current_delegation_chain_digest",
+                current_delegation_chain_digest,
+            ),
+            (
+                "current_authorization_state_digest",
+                current_authorization_state_digest,
+            ),
+            (
+                "current_validated_authority_digest",
+                current_validated_authority_digest,
+            ),
+        ):
+            if type(digest) is not Sha256Digest:
+                raise TypeError(f"{field_name} must be a Sha256Digest")
+        if type(subject_authority_binding) is not SubjectAuthorityBindingResult:
+            raise TypeError(
+                "subject_authority_binding must be a "
+                "SubjectAuthorityBindingResult"
+            )
+        if (
+            subject_authority_binding.status
+            is not SubjectAuthorityBindingStatus.BOUND
+        ):
+            raise ValueError("execution permit requires bound holder evidence")
+        if type(authority_applicability) is not AuthorityApplicabilityResult:
+            raise TypeError(
+                "authority_applicability must be an "
+                "AuthorityApplicabilityResult"
+            )
+        if (
+            authority_applicability.status
+            is not AuthorityApplicabilityStatus.APPLICABLE
+        ):
+            raise ValueError(
+                "execution permit requires applicable authority evidence"
+            )
+        if type(decision) is not Decision:
+            raise TypeError("decision must be a Decision")
+        if decision.outcome is not Outcome.APPROVAL_REQUIRED:
+            raise ValueError(
+                "execution permit requires a fresh APPROVAL_REQUIRED decision"
+            )
+        if decision.evidence.request_digest != current_request_digest:
+            raise ValueError("decision must bind the current request")
+        if (
+            decision.evidence.policy_bundle_digest
+            != current_policy_bundle_digest
+        ):
+            raise ValueError("decision must bind the current policy bundle")
+        if decision.evidence.subject_authority_binding != (
+            subject_authority_binding
+        ):
+            raise ValueError("decision must contain the exact holder evidence")
+        if decision.evidence.authority_applicability != authority_applicability:
+            raise ValueError(
+                "decision must contain the exact applicability evidence"
+            )
+        if (
+            authority_applicability.request_digest
+            != current_request_digest
+        ):
+            raise ValueError("applicability must bind the current request")
+        if (
+            authority_applicability.authority_digest
+            != current_validated_authority_digest
+        ):
+            raise ValueError("applicability must bind the current authority")
+        if (
+            authority_applicability.chain_digest
+            != current_delegation_chain_digest
+        ):
+            raise ValueError("applicability must bind the current chain")
+        if (
+            authority_applicability.state_digest
+            != current_authorization_state_digest
+        ):
+            raise ValueError(
+                "applicability must bind the current authorization state"
+            )
+
+        result = object.__new__(cls)
+        for field_name, value in (
+            ("original_receipt_digest", original_receipt_digest),
+            ("approved_state_digest", approved_state_digest),
+            ("current_request_digest", current_request_digest),
+            ("current_policy_bundle_digest", current_policy_bundle_digest),
+            (
+                "current_delegation_chain_digest",
+                current_delegation_chain_digest,
+            ),
+            (
+                "current_authorization_state_digest",
+                current_authorization_state_digest,
+            ),
+            (
+                "current_validated_authority_digest",
+                current_validated_authority_digest,
+            ),
+            ("subject_authority_binding", subject_authority_binding),
+            ("authority_applicability", authority_applicability),
+            ("decision", decision),
+        ):
+            object.__setattr__(result, field_name, value)
+        return result
+
+
+_EXECUTION_AUTHORIZATION_RESULT_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ExecutionAuthorizationResult:
+    """Typed evidence from complete fresh execution revalidation."""
+
+    status: ExecutionAuthorizationStatus
+    original_receipt_digest: Sha256Digest
+    approved_state_digest: Sha256Digest
+    current_request_digest: Sha256Digest
+    current_policy_bundle_digest: Sha256Digest
+    current_delegation_chain_digest: Sha256Digest
+    current_authorization_state_digest: Sha256Digest
+    authority_validation: AuthorityValidationResult
+    subject_authority_binding: SubjectAuthorityBindingResult | None
+    authority_applicability: AuthorityApplicabilityResult | None
+    decision: Decision
+    execution_permit: ExecutionPermit | None
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "ExecutionAuthorizationResult can only be created by revalidation"
+        )
+
+    @classmethod
+    def _from_revalidation(
+        cls,
+        *,
+        status: ExecutionAuthorizationStatus,
+        original_receipt_digest: Sha256Digest,
+        approved_state_digest: Sha256Digest,
+        current_request_digest: Sha256Digest,
+        current_policy_bundle_digest: Sha256Digest,
+        current_delegation_chain_digest: Sha256Digest,
+        current_authorization_state_digest: Sha256Digest,
+        authority_validation: AuthorityValidationResult,
+        subject_authority_binding: SubjectAuthorityBindingResult | None,
+        authority_applicability: AuthorityApplicabilityResult | None,
+        decision: Decision,
+        execution_permit: ExecutionPermit | None,
+        _token: object,
+    ) -> ExecutionAuthorizationResult:
+        if _token is not _EXECUTION_AUTHORIZATION_RESULT_TOKEN:
+            raise TypeError(
+                "ExecutionAuthorizationResult requires revalidation"
+            )
+        if type(status) is not ExecutionAuthorizationStatus:
+            raise TypeError("status must be an ExecutionAuthorizationStatus")
+        for field_name, digest in (
+            ("original_receipt_digest", original_receipt_digest),
+            ("approved_state_digest", approved_state_digest),
+            ("current_request_digest", current_request_digest),
+            ("current_policy_bundle_digest", current_policy_bundle_digest),
+            (
+                "current_delegation_chain_digest",
+                current_delegation_chain_digest,
+            ),
+            (
+                "current_authorization_state_digest",
+                current_authorization_state_digest,
+            ),
+        ):
+            if type(digest) is not Sha256Digest:
+                raise TypeError(f"{field_name} must be a Sha256Digest")
+        if type(authority_validation) is not AuthorityValidationResult:
+            raise TypeError(
+                "authority_validation must be an AuthorityValidationResult"
+            )
+        if authority_validation.chain_digest != current_delegation_chain_digest:
+            raise ValueError("validation must bind the current chain")
+        if authority_validation.state_digest != current_authorization_state_digest:
+            raise ValueError("validation must bind the current state")
+        if (
+            subject_authority_binding is not None
+            and type(subject_authority_binding)
+            is not SubjectAuthorityBindingResult
+        ):
+            raise TypeError(
+                "subject_authority_binding must be a "
+                "SubjectAuthorityBindingResult or None"
+            )
+        if (
+            authority_applicability is not None
+            and type(authority_applicability)
+            is not AuthorityApplicabilityResult
+        ):
+            raise TypeError(
+                "authority_applicability must be an "
+                "AuthorityApplicabilityResult or None"
+            )
+        if type(decision) is not Decision:
+            raise TypeError("decision must be a Decision")
+        if decision.evidence.request_digest != current_request_digest:
+            raise ValueError("decision must bind the current request")
+        if (
+            decision.evidence.policy_bundle_digest
+            != current_policy_bundle_digest
+        ):
+            raise ValueError("decision must bind the current policy bundle")
+        if decision.evidence.subject_authority_binding != (
+            subject_authority_binding
+        ):
+            raise ValueError("result must preserve exact holder evidence")
+        if decision.evidence.authority_applicability != authority_applicability:
+            raise ValueError("result must preserve exact applicability evidence")
+
+        authorized = status is ExecutionAuthorizationStatus.AUTHORIZED
+        if authorized != (execution_permit is not None):
+            raise ValueError(
+                "execution_permit must be present exactly for AUTHORIZED"
+            )
+        if execution_permit is not None:
+            if type(execution_permit) is not ExecutionPermit:
+                raise TypeError("execution_permit must be an ExecutionPermit")
+            if (
+                execution_permit.original_receipt_digest
+                != original_receipt_digest
+                or execution_permit.approved_state_digest
+                != approved_state_digest
+                or execution_permit.current_request_digest
+                != current_request_digest
+                or execution_permit.current_policy_bundle_digest
+                != current_policy_bundle_digest
+                or execution_permit.current_delegation_chain_digest
+                != current_delegation_chain_digest
+                or execution_permit.current_authorization_state_digest
+                != current_authorization_state_digest
+                or execution_permit.decision != decision
+            ):
+                raise ValueError(
+                    "execution permit must bind the exact revalidation result"
+                )
+
+        result = object.__new__(cls)
+        for field_name, value in (
+            ("status", status),
+            ("original_receipt_digest", original_receipt_digest),
+            ("approved_state_digest", approved_state_digest),
+            ("current_request_digest", current_request_digest),
+            ("current_policy_bundle_digest", current_policy_bundle_digest),
+            (
+                "current_delegation_chain_digest",
+                current_delegation_chain_digest,
+            ),
+            (
+                "current_authorization_state_digest",
+                current_authorization_state_digest,
+            ),
+            ("authority_validation", authority_validation),
+            ("subject_authority_binding", subject_authority_binding),
+            ("authority_applicability", authority_applicability),
+            ("decision", decision),
+            ("execution_permit", execution_permit),
+        ):
+            object.__setattr__(result, field_name, value)
+        return result

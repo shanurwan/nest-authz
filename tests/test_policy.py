@@ -11,6 +11,7 @@ from nest_authz import (
     Outcome,
     Policy,
     PolicyBundle,
+    Principal,
     Rule,
     RuleEffect,
     Sha256Digest,
@@ -35,7 +36,12 @@ def _condition(
 
 def _rule(identifier, effect=RuleEffect.PERMIT, conditions=None):
     approval_requirements = (
-        (ApprovalRequirement("OWNER_APPROVAL"),)
+        (
+            ApprovalRequirement(
+                "OWNER_APPROVAL",
+                (Principal("principal:owner-approver"),),
+            ),
+        )
         if effect is RuleEffect.APPROVAL_REQUIRED
         else ()
     )
@@ -192,11 +198,21 @@ class PolicyDomainTests(unittest.TestCase):
             "rule:1",
             RuleEffect.APPROVAL_REQUIRED,
             (_condition(),),
-            approval_requirements=(ApprovalRequirement("OWNER_APPROVAL"),),
+            approval_requirements=(
+                ApprovalRequirement(
+                    "OWNER_APPROVAL",
+                    (Principal("principal:owner-approver"),),
+                ),
+            ),
         )
         self.assertEqual(
             rule.approval_requirements,
-            (ApprovalRequirement("OWNER_APPROVAL"),),
+            (
+                ApprovalRequirement(
+                    "OWNER_APPROVAL",
+                    (Principal("principal:owner-approver"),),
+                ),
+            ),
         )
 
     def test_non_approval_effects_reject_approval_requirement(self):
@@ -208,13 +224,22 @@ class PolicyDomainTests(unittest.TestCase):
                         effect,
                         (_condition(),),
                         approval_requirements=(
-                            ApprovalRequirement("OWNER_APPROVAL"),
+                            ApprovalRequirement(
+                                "OWNER_APPROVAL",
+                                (Principal("principal:owner-approver"),),
+                            ),
                         ),
                     )
 
     def test_approval_requirement_order_is_nonsemantic_and_copied(self):
-        owner = ApprovalRequirement("OWNER_APPROVAL")
-        security = ApprovalRequirement("SECURITY_APPROVAL")
+        owner = ApprovalRequirement(
+            "OWNER_APPROVAL",
+            (Principal("principal:owner-approver"),),
+        )
+        security = ApprovalRequirement(
+            "SECURITY_APPROVAL",
+            (Principal("principal:security-approver"),),
+        )
         source = [security, owner]
         first = Rule(
             "rule:1",
@@ -228,7 +253,12 @@ class PolicyDomainTests(unittest.TestCase):
             (_condition(),),
             approval_requirements=(owner, security),
         )
-        source.append(ApprovalRequirement("LATER_MUTATION"))
+        source.append(
+            ApprovalRequirement(
+                "LATER_MUTATION",
+                (Principal("principal:later-approver"),),
+            )
+        )
 
         self.assertEqual(first, second)
         self.assertEqual(first.approval_requirements, (owner, security))
@@ -318,9 +348,9 @@ class PolicyCanonicalEncodingTests(unittest.TestCase):
             b"nest-authz/condition-operator@1",
             b"nest-authz/condition@2",
             b"nest-authz/rule-effect@1",
-            b"nest-authz/rule@2",
-            b"nest-authz/policy@2",
-            b"nest-authz/policy-bundle@2",
+            b"nest-authz/rule@3",
+            b"nest-authz/policy@3",
+            b"nest-authz/policy-bundle@3",
         ):
             with self.subTest(schema_name=schema_name):
                 self.assertIn(schema_name, encoded)
@@ -402,8 +432,14 @@ class PolicyCanonicalEncodingTests(unittest.TestCase):
         self.assertNotEqual(sha256_digest(first), sha256_digest(second))
 
     def test_approval_requirement_order_does_not_change_bundle_digest(self):
-        owner = ApprovalRequirement("OWNER_APPROVAL")
-        security = ApprovalRequirement("SECURITY_APPROVAL")
+        owner = ApprovalRequirement(
+            "OWNER_APPROVAL",
+            (Principal("principal:owner-approver"),),
+        )
+        security = ApprovalRequirement(
+            "SECURITY_APPROVAL",
+            (Principal("principal:security-approver"),),
+        )
         first_rule = Rule(
             "rule:1",
             RuleEffect.APPROVAL_REQUIRED,

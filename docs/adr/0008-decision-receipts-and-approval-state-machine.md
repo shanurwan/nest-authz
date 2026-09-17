@@ -2,6 +2,14 @@
 
 - Status: Accepted
 - Date: 2026-09-18
+- Amended by: ADR 0009 approval authorization and execution revalidation
+
+> Amendment note: ADR 0009 supersedes the transition signatures that accepted
+> an arbitrary `Principal`, the unauthenticated `decided_by` storage model, and
+> consumption based on a caller-supplied current receipt. Current transitions
+> require exact successful approver-authorization evidence, and consumption
+> requires an `ExecutionPermit` produced by fresh revalidation. The sections
+> below preserve the original ADR 0008 decision for historical clarity.
 
 ## Context
 

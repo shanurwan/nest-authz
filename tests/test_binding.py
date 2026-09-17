@@ -84,7 +84,12 @@ def _bundle(effect=RuleEffect.PERMIT):
         "payments.transfer",
     )
     requirements = (
-        (ApprovalRequirement("OWNER_APPROVAL"),)
+        (
+            ApprovalRequirement(
+                "OWNER_APPROVAL",
+                (Principal("principal:owner-approver"),),
+            ),
+        )
         if effect is RuleEffect.APPROVAL_REQUIRED
         else ()
     )
@@ -388,7 +393,7 @@ class SubjectAuthorityBindingTests(unittest.TestCase):
             canonical_bytes(result),
         )
         self.assertIn(b"nest-authz/decision-evidence@5", canonical_bytes(decision))
-        self.assertIn(b"nest-authz/decision@4", canonical_bytes(decision))
+        self.assertIn(b"nest-authz/decision@5", canonical_bytes(decision))
         self.assertFalse(hasattr(nest_authz, "Authority"))
 
     def test_binding_module_reads_no_external_state(self):

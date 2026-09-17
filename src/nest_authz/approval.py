@@ -8,9 +8,11 @@ from .domain import (
     ApprovalRequirementState,
     ApprovalRequirementStatus,
     ApprovalStatus,
+    ApproverAuthorizationResult,
+    ApproverAuthorizationStatus,
     DecisionReceipt,
+    ExecutionPermit,
     PendingApproval,
-    Principal,
     _PENDING_APPROVAL_TOKEN,
 )
 
@@ -35,7 +37,7 @@ def _transition_requirement(
     approval: PendingApproval,
     requirement: ApprovalRequirement,
     status: ApprovalRequirementStatus,
-    decided_by: Principal | None,
+    authorization: ApproverAuthorizationResult | None,
     logical_time: int,
 ) -> PendingApproval:
     if type(approval) is not PendingApproval:
@@ -44,8 +46,13 @@ def _transition_requirement(
         raise TypeError("requirement must be an ApprovalRequirement")
     if type(status) is not ApprovalRequirementStatus:
         raise TypeError("status must be an ApprovalRequirementStatus")
-    if decided_by is not None and type(decided_by) is not Principal:
-        raise TypeError("decided_by must be a Principal or None")
+    if (
+        authorization is not None
+        and type(authorization) is not ApproverAuthorizationResult
+    ):
+        raise TypeError(
+            "authorization must be an ApproverAuthorizationResult or None"
+        )
     _validate_logical_time(approval, logical_time)
 
     if approval.status is ApprovalStatus.CONSUMED:
@@ -64,11 +71,30 @@ def _transition_requirement(
         raise ApprovalTransitionError(
             "only a pending requirement can transition"
         )
+    if status in (
+        ApprovalRequirementStatus.APPROVED,
+        ApprovalRequirementStatus.REJECTED,
+    ):
+        if (
+            authorization is None
+            or authorization.status
+            is not ApproverAuthorizationStatus.AUTHORIZED
+        ):
+            raise ApprovalTransitionError(
+                "approval transition requires AUTHORIZED approver evidence"
+            )
+        if (
+            authorization.required_requirement != requirement
+            or authorization.attempted_requirement != requirement
+        ):
+            raise ApprovalTransitionError(
+                "approver evidence does not bind the exact requirement"
+            )
 
     replacement = ApprovalRequirementState(
         requirement=requirement,
         status=status,
-        decided_by=decided_by,
+        authorization=authorization,
         logical_time=logical_time,
     )
     states = tuple(
@@ -81,6 +107,7 @@ def _transition_requirement(
         requirement_states=states,
         logical_time=logical_time,
         consumed_at=None,
+        execution_permit_digest=None,
         _token=_PENDING_APPROVAL_TOKEN,
     )
 
@@ -99,7 +126,7 @@ def create_pending_approval(
         ApprovalRequirementState(
             requirement=requirement,
             status=ApprovalRequirementStatus.PENDING,
-            decided_by=None,
+            authorization=None,
             logical_time=logical_time,
         )
         for requirement in receipt.approval_requirements
@@ -110,6 +137,7 @@ def create_pending_approval(
         requirement_states=states,
         logical_time=logical_time,
         consumed_at=None,
+        execution_permit_digest=None,
         _token=_PENDING_APPROVAL_TOKEN,
     )
 
@@ -117,18 +145,16 @@ def create_pending_approval(
 def approve_requirement(
     approval: PendingApproval,
     requirement: ApprovalRequirement,
-    approver: Principal,
+    authorization: ApproverAuthorizationResult,
     logical_time: int,
 ) -> PendingApproval:
     """Approve one pending requirement and return a new state."""
 
-    if type(approver) is not Principal:
-        raise TypeError("approver must be a Principal")
     return _transition_requirement(
         approval,
         requirement,
         ApprovalRequirementStatus.APPROVED,
-        approver,
+        authorization,
         logical_time,
     )
 
@@ -136,18 +162,16 @@ def approve_requirement(
 def reject_requirement(
     approval: PendingApproval,
     requirement: ApprovalRequirement,
-    rejector: Principal,
+    authorization: ApproverAuthorizationResult,
     logical_time: int,
 ) -> PendingApproval:
     """Reject one pending requirement and return a new state."""
 
-    if type(rejector) is not Principal:
-        raise TypeError("rejector must be a Principal")
     return _transition_requirement(
         approval,
         requirement,
         ApprovalRequirementStatus.REJECTED,
-        rejector,
+        authorization,
         logical_time,
     )
 
@@ -170,25 +194,26 @@ def expire_requirement(
 
 def consume_approval(
     approval: PendingApproval,
-    current_receipt: DecisionReceipt,
+    execution_permit: ExecutionPermit,
     logical_time: int,
 ) -> PendingApproval:
-    """Consume a fully approved state for the exact current receipt."""
+    """Consume a fully approved state using its exact execution permit."""
 
     if type(approval) is not PendingApproval:
         raise TypeError("approval must be a PendingApproval")
-    if type(current_receipt) is not DecisionReceipt:
-        raise TypeError("current_receipt must be a DecisionReceipt")
+    if type(execution_permit) is not ExecutionPermit:
+        raise TypeError("execution_permit must be an ExecutionPermit")
     _validate_logical_time(approval, logical_time)
 
     if approval.status is ApprovalStatus.CONSUMED:
         raise ApprovalTransitionError("consumed approval cannot transition")
-    if (
-        approval.receipt != current_receipt
-        or approval.receipt_digest != sha256_digest(current_receipt)
-    ):
+    if approval.receipt_digest != execution_permit.original_receipt_digest:
         raise ApprovalTransitionError(
-            "approval receipt does not match the current receipt"
+            "execution permit does not bind the approval receipt"
+        )
+    if sha256_digest(approval) != execution_permit.approved_state_digest:
+        raise ApprovalTransitionError(
+            "execution permit does not bind the exact approved state"
         )
     if approval.status is not ApprovalStatus.APPROVED:
         raise ApprovalTransitionError(
@@ -201,5 +226,6 @@ def consume_approval(
         requirement_states=approval.requirement_states,
         logical_time=logical_time,
         consumed_at=logical_time,
+        execution_permit_digest=sha256_digest(execution_permit),
         _token=_PENDING_APPROVAL_TOKEN,
     )

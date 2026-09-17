@@ -10,6 +10,8 @@ from nest_authz import (
     ApprovalRequirementState,
     ApprovalRequirementStatus,
     ApprovalStatus,
+    ApproverAuthorizationStatus,
+    ApproverSubjectPrincipalBinding,
     AuthorityContext,
     AuthorityApplicabilityStatus,
     AuthorityBoundEvaluation,
@@ -25,6 +27,7 @@ from nest_authz import (
     DecisionEvidence,
     DecisionReceipt,
     DelegationChain,
+    ExecutionAuthorizationStatus,
     Obligation,
     Outcome,
     FieldNamespace,
@@ -45,11 +48,15 @@ from nest_authz import (
     Subject,
     SubjectAuthorityBindingStatus,
     SubjectPrincipalBinding,
+    approve_requirement,
     canonical_bytes,
+    check_approver_authorization,
     check_authority_applicability,
     check_subject_authority_binding,
     create_decision_receipt,
     create_pending_approval,
+    evaluate,
+    revalidate_for_execution,
     sha256_digest,
     validate_authority,
 )
@@ -110,6 +117,83 @@ def _holder_binding(request):
         SubjectPrincipalBinding(request.subject, Principal("agent:7")),
         _validated_authority(request),
     )
+
+
+def _execution_result():
+    request = AuthorizationRequest(
+        Subject("agent:7"),
+        Action("message.send"),
+        Resource("room:general"),
+        RequestContext(),
+        None,
+    )
+    approver = Principal("principal:owner-approver")
+    requirement = ApprovalRequirement("OWNER_APPROVAL", (approver,))
+    bundle = PolicyBundle(
+        (
+            Policy(
+                "policy:approval",
+                (
+                    Rule(
+                        "rule:approval",
+                        RuleEffect.APPROVAL_REQUIRED,
+                        (
+                            Condition(
+                                "action_matches",
+                                FieldReference(FieldNamespace.ACTION, "name"),
+                                ConditionOperator.EQUALS,
+                                "message.send",
+                            ),
+                        ),
+                        approval_requirements=(requirement,),
+                    ),
+                ),
+            ),
+        )
+    )
+    chain = DelegationChain(
+        (
+            AuthorityGrant(
+                "grant:approval",
+                Principal("issuer:root"),
+                Principal("agent:7"),
+                AuthorityScope(request.action, request.resource),
+                None,
+                0,
+                100,
+            ),
+        )
+    )
+    state = AuthorizationState(50)
+    authority = validate_authority(chain, state).verified_authority
+    holder = SubjectPrincipalBinding(request.subject, Principal("agent:7"))
+    receipt = create_decision_receipt(
+        evaluate(request, bundle, authority, holder)
+    )
+    pending = create_pending_approval(receipt, 50)
+    actor = Subject("approver:owner")
+    approver_binding = ApproverSubjectPrincipalBinding(actor, approver)
+    authorization = check_approver_authorization(
+        actor,
+        approver_binding,
+        requirement,
+        requirement,
+    )
+    approved = approve_requirement(
+        pending,
+        requirement,
+        authorization,
+        51,
+    )
+    return revalidate_for_execution(
+        receipt,
+        approved,
+        request,
+        bundle,
+        chain,
+        state,
+        holder,
+    ), approver_binding, authorization
 
 
 class CanonicalEncodingTests(unittest.TestCase):
@@ -334,7 +418,7 @@ class CanonicalEncodingTests(unittest.TestCase):
                 ),
             )
         )
-        self.assertIn(b"nest-authz/decision@4", decision_bytes)
+        self.assertIn(b"nest-authz/decision@5", decision_bytes)
         self.assertIn(b"approval_requirements", decision_bytes)
 
         grant = AuthorityGrant(
@@ -415,7 +499,10 @@ class CanonicalEncodingTests(unittest.TestCase):
             5,
             AuthorityApplicabilityStatus.APPLICABLE,
         )
-        approval_requirement = ApprovalRequirement("OWNER_APPROVAL")
+        approval_requirement = ApprovalRequirement(
+            "OWNER_APPROVAL",
+            (Principal("principal:owner-approver"),),
+        )
         approval_rule_evaluation = RuleEvaluation(
             "policy:1",
             "rule:1",
@@ -438,6 +525,13 @@ class CanonicalEncodingTests(unittest.TestCase):
         )
         receipt = create_decision_receipt(approval_decision)
         pending_approval = create_pending_approval(receipt, 50)
+        execution_result, approver_binding, approver_authorization = (
+            _execution_result()
+        )
+        self.assertIs(
+            execution_result.status,
+            ExecutionAuthorizationStatus.AUTHORIZED,
+        )
         values = (
             Subject("agent:7"),
             Action("message.send"),
@@ -466,9 +560,15 @@ class CanonicalEncodingTests(unittest.TestCase):
             rule_evaluation,
             Reason("ALLOWED"),
             Obligation("AUDIT"),
-            ApprovalRequirement("OWNER_APPROVAL"),
+            ApprovalRequirement(
+                "OWNER_APPROVAL",
+                (Principal("principal:owner-approver"),),
+            ),
             ApprovalRequirementStatus.PENDING,
             ApprovalStatus.PENDING,
+            approver_binding,
+            ApproverAuthorizationStatus.AUTHORIZED,
+            approver_authorization,
             pending_approval.requirement_states[0],
             evidence,
             Decision(
@@ -494,6 +594,9 @@ class CanonicalEncodingTests(unittest.TestCase):
             SubjectPrincipalBinding(Subject("agent:7"), Principal("agent:7")),
             SubjectAuthorityBindingStatus.BOUND,
             _holder_binding(_sample_request(authority)),
+            ExecutionAuthorizationStatus.AUTHORIZED,
+            execution_result.execution_permit,
+            execution_result,
         )
 
         for value in values:

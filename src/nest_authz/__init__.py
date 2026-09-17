@@ -6,6 +6,9 @@ from .domain import (
     ApprovalRequirementState,
     ApprovalRequirementStatus,
     ApprovalStatus,
+    ApproverAuthorizationResult,
+    ApproverAuthorizationStatus,
+    ApproverSubjectPrincipalBinding,
     AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityApplicabilityStatus,
@@ -23,6 +26,9 @@ from .domain import (
     DecisionEvidence,
     DecisionReceipt,
     DelegationChain,
+    ExecutionAuthorizationResult,
+    ExecutionAuthorizationStatus,
+    ExecutionPermit,
     Obligation,
     Outcome,
     FieldNamespace,
@@ -47,6 +53,7 @@ from .domain import (
     VerifiedAuthority,
 )
 from .applicability import check_authority_applicability
+from .approver import check_approver_authorization
 from .approval import (
     ApprovalTransitionError,
     approve_requirement,
@@ -59,6 +66,7 @@ from .binding import check_subject_authority_binding
 from .canonical import canonical_bytes, sha256_digest
 from .delegation import AuthorityValidationError, validate_authority
 from .evaluator import EvaluationError, evaluate
+from .execution import revalidate_for_execution
 from .receipt import create_decision_receipt
 
 __all__ = [
@@ -68,6 +76,9 @@ __all__ = [
     "ApprovalRequirementStatus",
     "ApprovalStatus",
     "ApprovalTransitionError",
+    "ApproverAuthorizationResult",
+    "ApproverAuthorizationStatus",
+    "ApproverSubjectPrincipalBinding",
     "AuthorityContext",
     "AuthorityApplicabilityResult",
     "AuthorityApplicabilityStatus",
@@ -86,6 +97,9 @@ __all__ = [
     "DecisionEvidence",
     "DecisionReceipt",
     "DelegationChain",
+    "ExecutionAuthorizationResult",
+    "ExecutionAuthorizationStatus",
+    "ExecutionPermit",
     "Obligation",
     "Outcome",
     "FieldNamespace",
@@ -111,6 +125,7 @@ __all__ = [
     "canonical_bytes",
     "approve_requirement",
     "check_authority_applicability",
+    "check_approver_authorization",
     "check_subject_authority_binding",
     "consume_approval",
     "create_decision_receipt",
@@ -119,6 +134,7 @@ __all__ = [
     "evaluate",
     "expire_requirement",
     "reject_requirement",
+    "revalidate_for_execution",
     "sha256_digest",
     "validate_authority",
 ]
