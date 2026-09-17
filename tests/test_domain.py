@@ -1,15 +1,13 @@
-from dataclasses import FrozenInstanceError, fields
-from pathlib import Path
-import sys
+from dataclasses import fields, is_dataclass
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from nest_authz import (  # noqa: E402
+import nest_authz
+from nest_authz import (
     Action,
     ApprovalRequirement,
     Authority,
     AuthorizationRequest,
+    ConditionStatus,
     Decision,
     DecisionEvidence,
     Obligation,
@@ -17,8 +15,29 @@ from nest_authz import (  # noqa: E402
     Reason,
     RequestContext,
     Resource,
+    Sha256Digest,
     Subject,
 )
+
+
+_PUBLIC_DATACLASS_DOMAIN_RECORDS = (
+    Subject,
+    Action,
+    Resource,
+    Sha256Digest,
+    RequestContext,
+    Authority,
+    AuthorizationRequest,
+    Reason,
+    Obligation,
+    ApprovalRequirement,
+    DecisionEvidence,
+    Decision,
+)
+
+
+def _policy_bundle_digest():
+    return Sha256Digest.from_hex("ab" * 32)
 
 
 class DomainInvariantTests(unittest.TestCase):
@@ -105,16 +124,75 @@ class DomainInvariantTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "strict UTF-8"):
             RequestContext((("key", "\ud800"),))
 
-    def test_all_domain_objects_are_frozen(self):
-        subject = Subject("agent:7")
+    def test_public_dataclass_domain_record_set_is_complete(self):
+        exported_dataclasses = {
+            value
+            for name in nest_authz.__all__
+            if isinstance((value := getattr(nest_authz, name)), type)
+            and is_dataclass(value)
+        }
 
-        with self.assertRaises(FrozenInstanceError):
-            subject.identifier = "agent:8"
+        self.assertEqual(
+            exported_dataclasses,
+            set(_PUBLIC_DATACLASS_DOMAIN_RECORDS),
+        )
+
+    def test_every_public_dataclass_domain_record_is_frozen(self):
+        for record_type in _PUBLIC_DATACLASS_DOMAIN_RECORDS:
+            with self.subTest(record_type=record_type.__name__):
+                self.assertTrue(is_dataclass(record_type))
+                self.assertTrue(record_type.__dataclass_params__.frozen)
+
+    def test_every_public_dataclass_domain_record_is_slotted(self):
+        for record_type in _PUBLIC_DATACLASS_DOMAIN_RECORDS:
+            with self.subTest(record_type=record_type.__name__):
+                slots = record_type.__dict__.get("__slots__")
+                self.assertIsNotNone(slots)
+                self.assertNotIn("__dict__", slots)
+
+    def test_sha256_digest_is_typed_and_has_canonical_text(self):
+        digest_bytes = bytes(range(32))
+        digest = Sha256Digest(digest_bytes)
+
+        self.assertEqual(digest.algorithm, "sha256")
+        self.assertEqual(digest.value, digest_bytes)
+        self.assertEqual(digest.hex_value, digest_bytes.hex())
+        self.assertEqual(str(digest), f"sha256:{digest_bytes.hex()}")
+        self.assertEqual(Sha256Digest.from_hex(digest_bytes.hex()), digest)
+
+    def test_invalid_sha256_digest_values_fail_construction(self):
+        for value in (b"", b"x" * 31, b"x" * 33):
+            with self.subTest(length=len(value)):
+                with self.assertRaisesRegex(ValueError, "exactly 32 bytes"):
+                    Sha256Digest(value)
+
+        with self.assertRaises(TypeError):
+            Sha256Digest(bytearray(32))
+
+        for value in ("a" * 63, "a" * 65, "A" * 64, "g" * 64):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "64 lowercase"):
+                    Sha256Digest.from_hex(value)
+
+        with self.assertRaises(TypeError):
+            Sha256Digest.from_hex(1)
 
     def test_outcome_is_exhaustive(self):
         self.assertEqual(
             tuple(Outcome),
             (Outcome.PERMIT, Outcome.DENY, Outcome.APPROVAL_REQUIRED),
+        )
+
+    def test_condition_status_is_exhaustive(self):
+        self.assertEqual(
+            tuple(ConditionStatus),
+            (
+                ConditionStatus.SATISFIED,
+                ConditionStatus.UNSATISFIED,
+                ConditionStatus.NOT_EVALUATED,
+                ConditionStatus.MISSING_INPUT,
+                ConditionStatus.ERROR,
+            ),
         )
 
     def test_reason_and_instruction_codes_must_not_be_blank(self):
@@ -123,33 +201,45 @@ class DomainInvariantTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "must not be blank"):
                     factory(" ")
 
-    def test_evidence_requires_a_policy_bundle_identifier(self):
-        with self.assertRaisesRegex(ValueError, "policy bundle identifier"):
-            DecisionEvidence(" ")
+    def test_evidence_requires_a_typed_policy_bundle_digest(self):
+        with self.assertRaisesRegex(TypeError, "Sha256Digest"):
+            DecisionEvidence("sha256:" + "ab" * 32)
 
-    def test_condition_results_are_boolean_unique_and_canonical(self):
+    def test_condition_results_are_typed_unique_and_canonical(self):
         evidence = DecisionEvidence(
-            "sha256:bundle",
-            condition_results=(("scope", True), ("active", False)),
+            _policy_bundle_digest(),
+            condition_results=(
+                ("scope", ConditionStatus.SATISFIED),
+                ("active", ConditionStatus.NOT_EVALUATED),
+            ),
         )
         self.assertEqual(
             evidence.condition_results,
-            (("active", False), ("scope", True)),
+            (
+                ("active", ConditionStatus.NOT_EVALUATED),
+                ("scope", ConditionStatus.SATISFIED),
+            ),
         )
 
-        with self.assertRaisesRegex(TypeError, "bool"):
-            DecisionEvidence("sha256:bundle", condition_results=(("scope", 1),))
+        with self.assertRaisesRegex(TypeError, "ConditionStatus"):
+            DecisionEvidence(
+                _policy_bundle_digest(),
+                condition_results=(("scope", True),),
+            )
         with self.assertRaisesRegex(ValueError, "duplicate name"):
             DecisionEvidence(
-                "sha256:bundle",
-                condition_results=(("scope", True), ("scope", False)),
+                _policy_bundle_digest(),
+                condition_results=(
+                    ("scope", ConditionStatus.SATISFIED),
+                    ("scope", ConditionStatus.UNSATISFIED),
+                ),
             )
 
     def test_default_deny_can_record_that_nothing_matched(self):
         decision = Decision(
             outcome=Outcome.DENY,
             reasons=(Reason("NO_MATCHING_AUTHORITY"),),
-            evidence=DecisionEvidence("sha256:bundle"),
+            evidence=DecisionEvidence(_policy_bundle_digest()),
         )
 
         self.assertIsNone(decision.evidence.matched_policy_id)
@@ -168,7 +258,7 @@ class DomainInvariantTests(unittest.TestCase):
                     Decision(
                         outcome=outcome,
                         reasons=(Reason("RULE_MATCHED"),),
-                        evidence=DecisionEvidence("sha256:bundle"),
+                        evidence=DecisionEvidence(_policy_bundle_digest()),
                         approval_requirement=approval,
                     )
 
@@ -178,7 +268,7 @@ class DomainInvariantTests(unittest.TestCase):
                         outcome=outcome,
                         reasons=(Reason("RULE_MATCHED"),),
                         evidence=DecisionEvidence(
-                            "sha256:bundle",
+                            _policy_bundle_digest(),
                             matched_policy_id="policy:1",
                         ),
                         approval_requirement=approval,
@@ -186,7 +276,7 @@ class DomainInvariantTests(unittest.TestCase):
 
     def test_approval_requirement_matches_outcome_exactly(self):
         evidence = DecisionEvidence(
-            "sha256:bundle",
+            _policy_bundle_digest(),
             matched_policy_id="policy:1",
             matched_authority=Authority("grant:1"),
         )
@@ -207,7 +297,7 @@ class DomainInvariantTests(unittest.TestCase):
             )
 
     def test_decision_requires_reason_and_typed_outcome(self):
-        evidence = DecisionEvidence("sha256:bundle")
+        evidence = DecisionEvidence(_policy_bundle_digest())
 
         with self.assertRaisesRegex(ValueError, "at least one reason"):
             Decision(Outcome.DENY, (), evidence)
@@ -218,7 +308,7 @@ class DomainInvariantTests(unittest.TestCase):
         reasons = [Reason("ALLOWED")]
         obligations = [Obligation("AUDIT")]
         evidence = DecisionEvidence(
-            "sha256:bundle",
+            _policy_bundle_digest(),
             matched_policy_id="policy:1",
             matched_authority=Authority("grant:1"),
         )

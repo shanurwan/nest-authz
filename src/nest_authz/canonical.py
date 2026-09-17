@@ -10,6 +10,7 @@ from .domain import (
     ApprovalRequirement,
     Authority,
     AuthorizationRequest,
+    ConditionStatus,
     Decision,
     DecisionEvidence,
     Obligation,
@@ -17,6 +18,7 @@ from .domain import (
     Reason,
     RequestContext,
     Resource,
+    Sha256Digest,
     Subject,
 )
 
@@ -30,10 +32,10 @@ def canonical_bytes(value: object) -> bytes:
     return _PREAMBLE + _encode_domain(value)
 
 
-def sha256_digest(value: object) -> str:
-    """Return the lowercase SHA-256 hex digest of a canonical domain value."""
+def sha256_digest(value: object) -> Sha256Digest:
+    """Return the typed SHA-256 digest of a canonical domain value."""
 
-    return sha256(canonical_bytes(value)).hexdigest()
+    return Sha256Digest(sha256(canonical_bytes(value)).digest())
 
 
 def _frame(tag: bytes, payload: bytes) -> bytes:
@@ -125,9 +127,11 @@ def _encode_scalar_map(values: Iterable[tuple[str, object]]) -> bytes:
     )
 
 
-def _encode_boolean_map(values: Iterable[tuple[str, bool]]) -> bytes:
+def _encode_condition_status_map(
+    values: Iterable[tuple[str, ConditionStatus]],
+) -> bytes:
     return _encode_map(
-        (key, _encode_boolean(value))
+        (key, _encode_domain(value))
         for key, value in values
     )
 
@@ -153,6 +157,14 @@ def _encode_domain(value: object) -> bytes:
         return _encode_record(
             "nest-authz/resource@1",
             (("identifier", _encode_string(value.identifier)),),
+        )
+    if value_type is Sha256Digest:
+        return _encode_record(
+            "nest-authz/sha256-digest@1",
+            (
+                ("algorithm", _encode_string(value.algorithm)),
+                ("value", _encode_string(value.hex_value)),
+            ),
         )
     if value_type is RequestContext:
         return _encode_record(
@@ -183,6 +195,11 @@ def _encode_domain(value: object) -> bytes:
             "nest-authz/outcome@1",
             (("value", _encode_string(value.value)),),
         )
+    if value_type is ConditionStatus:
+        return _encode_record(
+            "nest-authz/condition-status@1",
+            (("value", _encode_string(value.value)),),
+        )
     if value_type is Reason:
         return _encode_record(
             "nest-authz/reason@1",
@@ -209,9 +226,12 @@ def _encode_domain(value: object) -> bytes:
         )
     if value_type is DecisionEvidence:
         return _encode_record(
-            "nest-authz/decision-evidence@1",
+            "nest-authz/decision-evidence@2",
             (
-                ("policy_bundle_id", _encode_string(value.policy_bundle_id)),
+                (
+                    "policy_bundle_digest",
+                    _encode_domain(value.policy_bundle_digest),
+                ),
                 ("matched_policy_id", _encode_scalar(value.matched_policy_id)),
                 (
                     "matched_authority",
@@ -219,7 +239,7 @@ def _encode_domain(value: object) -> bytes:
                 ),
                 (
                     "condition_results",
-                    _encode_boolean_map(value.condition_results),
+                    _encode_condition_status_map(value.condition_results),
                 ),
             ),
         )

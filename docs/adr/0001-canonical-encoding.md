@@ -42,10 +42,12 @@ decision have a canonical representation:
 - `Subject`
 - `Action`
 - `Resource`
+- `Sha256Digest`
 - `RequestContext`
 - `Authority`
 - `AuthorizationRequest`
 - `Outcome`
+- `ConditionStatus`
 - `Reason`
 - `Obligation`
 - `ApprovalRequirement`
@@ -55,8 +57,8 @@ decision have a canonical representation:
 The public operations are:
 
 - `canonical_bytes(value)`, returning the versioned canonical bytes; and
-- `sha256_digest(value)`, returning the lowercase hexadecimal SHA-256 digest of
-  those exact bytes.
+- `sha256_digest(value)`, returning a typed `Sha256Digest` over those exact
+  bytes. Its canonical text is `sha256:<64 lowercase hex>`.
 
 Only exact supported domain types are accepted. Subclasses are rejected so that
 additional subclass state cannot be omitted and collide with a base value.
@@ -93,6 +95,10 @@ Version 1 defines these tags:
 Each domain record uses a stable wire type such as `nest-authz/subject@1`.
 Python module paths and class representations are not part of the wire format.
 Record fields are named and encoded as a map.
+
+Typed SHA-256 digests use `nest-authz/sha256-digest@1`. Condition statuses use
+`nest-authz/condition-status@1`. The condition-status model and the version-2
+decision-evidence schema are specified by ADR 0002.
 
 Map keys are strings. Entries are sorted lexicographically by the strict UTF-8
 bytes of their keys. The serialized map key is still a complete `S` frame, so
@@ -211,9 +217,9 @@ record schema version. Refactoring Python module or class names does not require
 a version change when the wire schema remains unchanged.
 
 Consumers that persist digests should store or communicate the digest algorithm
-alongside the hexadecimal value when algorithm agility is required. Version 1's
-`sha256_digest()` operation is specifically SHA-256 over the complete preamble
-and top-level frame.
+alongside the hexadecimal value. Version 1's `sha256_digest()` operation returns
+a `Sha256Digest` containing the explicit `sha256` algorithm and the digest of
+the complete preamble and top-level frame.
 
 ## Consequences and Limitations
 

@@ -6,6 +6,7 @@ from .domain import (
     ApprovalRequirement,
     Authority,
     AuthorizationRequest,
+    ConditionStatus,
     Decision,
     DecisionEvidence,
     Obligation,
@@ -13,6 +14,7 @@ from .domain import (
     Reason,
     RequestContext,
     Resource,
+    Sha256Digest,
     Subject,
 )
 
@@ -21,6 +23,7 @@ __all__ = [
     "ApprovalRequirement",
     "Authority",
     "AuthorizationRequest",
+    "ConditionStatus",
     "Decision",
     "DecisionEvidence",
     "Obligation",
@@ -28,6 +31,7 @@ __all__ = [
     "Reason",
     "RequestContext",
     "Resource",
+    "Sha256Digest",
     "Subject",
     "canonical_bytes",
     "sha256_digest",

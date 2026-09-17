@@ -7,9 +7,20 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TypeAlias, TypeVar
 
+
+class ConditionStatus(str, Enum):
+    """The auditable result of considering one policy condition."""
+
+    SATISFIED = "SATISFIED"
+    UNSATISFIED = "UNSATISFIED"
+    NOT_EVALUATED = "NOT_EVALUATED"
+    MISSING_INPUT = "MISSING_INPUT"
+    ERROR = "ERROR"
+
+
 _Scalar: TypeAlias = str | int | bool | None
 _Fields: TypeAlias = tuple[tuple[str, _Scalar], ...]
-_ConditionResults: TypeAlias = tuple[tuple[str, bool], ...]
+_ConditionResults: TypeAlias = tuple[tuple[str, ConditionStatus], ...]
 _TypedFields: TypeAlias = tuple[tuple[str, str, _Scalar], ...]
 
 
@@ -84,13 +95,13 @@ def _canonical_condition_results(value: object) -> _ConditionResults:
         if not isinstance(item, (tuple, list)) or len(item) != 2:
             raise TypeError("condition_results entries must be name/result pairs")
         name = _non_blank(item[0], "condition name")
-        succeeded = item[1]
-        if type(succeeded) is not bool:
-            raise TypeError("condition results must be bool values")
+        status = item[1]
+        if type(status) is not ConditionStatus:
+            raise TypeError("condition results must be ConditionStatus values")
         if name in seen:
             raise ValueError("condition_results contains a duplicate name")
         seen.add(name)
-        result.append((name, succeeded))
+        result.append((name, status))
 
     return tuple(sorted(result, key=lambda pair: pair[0]))
 
@@ -137,6 +148,44 @@ class Resource:
 
     def __post_init__(self) -> None:
         _non_blank(self.identifier, "resource identifier")
+
+
+@dataclass(frozen=True, slots=True)
+class Sha256Digest:
+    """A validated SHA-256 content digest."""
+
+    value: bytes
+    algorithm: str = field(init=False, default="sha256")
+
+    def __post_init__(self) -> None:
+        if type(self.value) is not bytes:
+            raise TypeError("SHA-256 digest value must be bytes")
+        if len(self.value) != 32:
+            raise ValueError("SHA-256 digest value must contain exactly 32 bytes")
+
+    @classmethod
+    def from_hex(cls, value: str) -> Sha256Digest:
+        """Construct a digest from exactly 64 lowercase hexadecimal characters."""
+
+        if type(value) is not str:
+            raise TypeError("SHA-256 hexadecimal value must be a string")
+        if len(value) != 64 or any(
+            character not in "0123456789abcdef" for character in value
+        ):
+            raise ValueError(
+                "SHA-256 hexadecimal value must contain exactly "
+                "64 lowercase hexadecimal characters"
+            )
+        return cls(bytes.fromhex(value))
+
+    @property
+    def hex_value(self) -> str:
+        """Return exactly 64 lowercase hexadecimal characters."""
+
+        return self.value.hex()
+
+    def __str__(self) -> str:
+        return f"{self.algorithm}:{self.hex_value}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,13 +312,14 @@ class ApprovalRequirement:
 class DecisionEvidence:
     """Machine-readable evidence supporting a decision."""
 
-    policy_bundle_id: str
+    policy_bundle_digest: Sha256Digest
     matched_policy_id: str | None = None
     matched_authority: Authority | None = None
     condition_results: _ConditionResults = ()
 
     def __post_init__(self) -> None:
-        _non_blank(self.policy_bundle_id, "policy bundle identifier")
+        if type(self.policy_bundle_digest) is not Sha256Digest:
+            raise TypeError("policy_bundle_digest must be a Sha256Digest")
         if self.matched_policy_id is not None:
             _non_blank(self.matched_policy_id, "matched policy identifier")
         if (

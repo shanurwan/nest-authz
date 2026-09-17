@@ -8,3 +8,13 @@ replay, and verifiable decision receipts.
 
 Status: Experimental / Research Prototype
 Integration target: Nanda Town / NEST
+
+## Development
+
+Install the package in editable mode before running the tests. The tests import
+the installed package and do not modify `sys.path`:
+
+```text
+python -m pip install --editable .
+python -m unittest discover -s tests -v
+```
