@@ -48,6 +48,14 @@ decision have a canonical representation:
 - `AuthorizationRequest`
 - `Outcome`
 - `ConditionStatus`
+- `FieldNamespace`
+- `FieldReference`
+- `ConditionOperator`
+- `Condition`
+- `RuleEffect`
+- `Rule`
+- `Policy`
+- `PolicyBundle`
 - `Reason`
 - `Obligation`
 - `ApprovalRequirement`
@@ -100,6 +108,8 @@ Typed SHA-256 digests use `nest-authz/sha256-digest@1`. Condition statuses use
 `nest-authz/condition-status@1`. The condition-status model and the version-2
 decision-evidence schema are specified by ADR 0002.
 
+Policy-domain records use the stable version-1 schemas defined by ADR 0003.
+
 Map keys are strings. Entries are sorted lexicographically by the strict UTF-8
 bytes of their keys. The serialized map key is still a complete `S` frame, so
 the ordering rule and the encoded data are both explicit. Duplicate map keys
@@ -118,12 +128,19 @@ semantic meaning and their keys are sorted only for canonical serialization:
 - obligation parameters;
 - approval-requirement parameters;
 - decision-evidence condition results; and
+- policies within a policy bundle;
+- rules within a policy;
+- conditions within a rule; and
 - record fields.
 
 `Decision.reasons` and `Decision.obligations` are ordered sequences. Their order
 is preserved because it already participates in domain equality and may express
 explanation priority or enforcement order. Reordering either sequence therefore
 changes the canonical representation and digest.
+
+Rule obligations are ordered for the same reason. Policy, rule, and condition
+collections are canonicalized because ADR 0003 declares their ordering
+non-semantic.
 
 ## String and Unicode Handling
 

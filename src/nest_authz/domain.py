@@ -18,10 +18,41 @@ class ConditionStatus(str, Enum):
     ERROR = "ERROR"
 
 
+class FieldNamespace(Enum):
+    """A closed source namespace for direct policy field references."""
+
+    SUBJECT = "SUBJECT"
+    ACTION = "ACTION"
+    RESOURCE = "RESOURCE"
+    CONTEXT = "CONTEXT"
+    AUTHORITY = "AUTHORITY"
+
+
+class ConditionOperator(Enum):
+    """The supported declarative condition operators."""
+
+    EQUALS = "EQUALS"
+    NOT_EQUALS = "NOT_EQUALS"
+    EXISTS = "EXISTS"
+    INTEGER_LESS_THAN = "INTEGER_LESS_THAN"
+    INTEGER_LESS_THAN_OR_EQUAL = "INTEGER_LESS_THAN_OR_EQUAL"
+    INTEGER_GREATER_THAN = "INTEGER_GREATER_THAN"
+    INTEGER_GREATER_THAN_OR_EQUAL = "INTEGER_GREATER_THAN_OR_EQUAL"
+
+
+class RuleEffect(Enum):
+    """The effect contributed by a matching policy rule."""
+
+    PERMIT = "PERMIT"
+    DENY = "DENY"
+    APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+
+
 _Scalar: TypeAlias = str | int | bool | None
 _Fields: TypeAlias = tuple[tuple[str, _Scalar], ...]
 _ConditionResults: TypeAlias = tuple[tuple[str, ConditionStatus], ...]
 _TypedFields: TypeAlias = tuple[tuple[str, str, _Scalar], ...]
+_TypedScalar: TypeAlias = tuple[str, _Scalar]
 
 
 def _valid_string(value: object, field_name: str) -> str:
@@ -88,7 +119,7 @@ def _typed_fields(fields: _Fields) -> _TypedFields:
 
 
 def _canonical_condition_results(value: object) -> _ConditionResults:
-    result: list[tuple[str, bool]] = []
+    result: list[tuple[str, ConditionStatus]] = []
     seen: set[str] = set()
 
     for item in _pairs(value, "condition_results"):
@@ -186,6 +217,109 @@ class Sha256Digest:
 
     def __str__(self) -> str:
         return f"{self.algorithm}:{self.hex_value}"
+
+
+@dataclass(frozen=True, slots=True)
+class FieldReference:
+    """A direct, typed reference to one authorization-input field."""
+
+    namespace: FieldNamespace
+    name: str
+
+    def __post_init__(self) -> None:
+        if type(self.namespace) is not FieldNamespace:
+            raise TypeError("namespace must be a FieldNamespace")
+        _non_blank(self.name, "field reference name")
+
+
+@dataclass(frozen=True, slots=True)
+class Condition:
+    """A declarative comparison of one direct field with a literal value."""
+
+    field: FieldReference
+    operator: ConditionOperator
+    value: _Scalar = field(default=None, compare=False, hash=False)
+    _typed_value: _TypedScalar = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if type(self.field) is not FieldReference:
+            raise TypeError("field must be a FieldReference")
+        if type(self.operator) is not ConditionOperator:
+            raise TypeError("operator must be a ConditionOperator")
+
+        if self.operator is ConditionOperator.EXISTS:
+            if self.value is not None:
+                raise ValueError("EXISTS must not have a value")
+        else:
+            if self.value is None:
+                raise ValueError(f"{self.operator.value} requires a value")
+            if type(self.value) not in (str, int, bool):
+                raise TypeError("condition values must be str, int, or bool")
+            if type(self.value) is str:
+                _valid_string(self.value, "condition value")
+
+        integer_operators = (
+            ConditionOperator.INTEGER_LESS_THAN,
+            ConditionOperator.INTEGER_LESS_THAN_OR_EQUAL,
+            ConditionOperator.INTEGER_GREATER_THAN,
+            ConditionOperator.INTEGER_GREATER_THAN_OR_EQUAL,
+        )
+        if self.operator in integer_operators and type(self.value) is not int:
+            raise TypeError("integer comparison operators require an int value")
+
+        type_names = {
+            str: "string",
+            int: "integer",
+            bool: "boolean",
+            type(None): "none",
+        }
+        object.__setattr__(
+            self,
+            "_typed_value",
+            (type_names[type(self.value)], self.value),
+        )
+
+
+def _condition_sort_key(condition: Condition) -> tuple[object, ...]:
+    return (
+        condition.field.namespace.value,
+        condition.field.name,
+        condition.operator.value,
+        condition._typed_value,
+    )
+
+
+def _canonical_conditions(value: object) -> tuple[Condition, ...]:
+    conditions = _typed_tuple(value, Condition, "conditions")
+    if not conditions:
+        raise ValueError("a rule must contain at least one condition")
+
+    unique: list[Condition] = []
+    for condition in conditions:
+        if condition in unique:
+            raise ValueError("conditions must not contain duplicates")
+        unique.append(condition)
+
+    return tuple(sorted(unique, key=_condition_sort_key))
+
+
+def _canonical_identified_records(
+    value: object,
+    expected_type: type[_T],
+    field_name: str,
+) -> tuple[_T, ...]:
+    records = _typed_tuple(value, expected_type, field_name)
+    seen: set[str] = set()
+
+    for record in records:
+        identifier = record.identifier
+        if identifier in seen:
+            raise ValueError(f"{field_name} must not contain duplicate identifiers")
+        seen.add(identifier)
+
+    return tuple(
+        sorted(records, key=lambda record: record.identifier.encode("utf-8"))
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +440,79 @@ class ApprovalRequirement:
             parameters,
         )
         object.__setattr__(self, "_typed_parameters", _typed_fields(parameters))
+
+
+@dataclass(frozen=True, slots=True)
+class Rule:
+    """An immutable conditional contribution to policy combination."""
+
+    identifier: str
+    effect: RuleEffect
+    conditions: tuple[Condition, ...]
+    obligations: tuple[Obligation, ...] = ()
+    approval_requirement: ApprovalRequirement | None = None
+
+    def __post_init__(self) -> None:
+        _non_blank(self.identifier, "rule identifier")
+        if type(self.effect) is not RuleEffect:
+            raise TypeError("effect must be a RuleEffect")
+        object.__setattr__(
+            self,
+            "conditions",
+            _canonical_conditions(self.conditions),
+        )
+        object.__setattr__(
+            self,
+            "obligations",
+            _typed_tuple(self.obligations, Obligation, "obligations"),
+        )
+
+        if (
+            self.approval_requirement is not None
+            and type(self.approval_requirement) is not ApprovalRequirement
+        ):
+            raise TypeError(
+                "approval_requirement must be an ApprovalRequirement or None"
+            )
+
+        approval_is_required = self.effect is RuleEffect.APPROVAL_REQUIRED
+        has_approval_requirement = self.approval_requirement is not None
+        if approval_is_required != has_approval_requirement:
+            raise ValueError(
+                "approval_requirement must be present exactly for "
+                "APPROVAL_REQUIRED rules"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class Policy:
+    """An identified, order-independent collection of rules."""
+
+    identifier: str
+    rules: tuple[Rule, ...] = ()
+
+    def __post_init__(self) -> None:
+        _non_blank(self.identifier, "policy identifier")
+        object.__setattr__(
+            self,
+            "rules",
+            _canonical_identified_records(self.rules, Rule, "rules"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyBundle:
+    """A canonically ordered collection of policies using deny-overrides."""
+
+    policies: tuple[Policy, ...] = ()
+    combining_algorithm: str = field(init=False, default="DENY_OVERRIDES")
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "policies",
+            _canonical_identified_records(self.policies, Policy, "policies"),
+        )
 
 
 @dataclass(frozen=True, slots=True)

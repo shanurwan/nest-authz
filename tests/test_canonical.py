@@ -9,14 +9,22 @@ from nest_authz import (
     ApprovalRequirement,
     Authority,
     AuthorizationRequest,
+    Condition,
+    ConditionOperator,
     ConditionStatus,
     Decision,
     DecisionEvidence,
     Obligation,
     Outcome,
+    FieldNamespace,
+    FieldReference,
+    Policy,
+    PolicyBundle,
     Reason,
     RequestContext,
     Resource,
+    Rule,
+    RuleEffect,
     Sha256Digest,
     Subject,
     canonical_bytes,
@@ -224,6 +232,19 @@ class CanonicalEncodingTests(unittest.TestCase):
 
     def test_every_public_domain_type_is_supported(self):
         authority = Authority("grant:1", {"active": True})
+        field_reference = FieldReference(FieldNamespace.CONTEXT, "risk_level")
+        policy_condition = Condition(
+            field_reference,
+            ConditionOperator.EQUALS,
+            "low",
+        )
+        policy_rule = Rule(
+            "rule:1",
+            RuleEffect.PERMIT,
+            (policy_condition,),
+        )
+        policy = Policy("policy:1", (policy_rule,))
+        policy_bundle = PolicyBundle((policy,))
         evidence = DecisionEvidence(
             _policy_bundle_digest(),
             matched_policy_id="policy:1",
@@ -248,6 +269,14 @@ class CanonicalEncodingTests(unittest.TestCase):
             ),
             Outcome.PERMIT,
             ConditionStatus.SATISFIED,
+            FieldNamespace.CONTEXT,
+            field_reference,
+            ConditionOperator.EQUALS,
+            policy_condition,
+            RuleEffect.PERMIT,
+            policy_rule,
+            policy,
+            policy_bundle,
             Reason("ALLOWED"),
             Obligation("AUDIT"),
             ApprovalRequirement("OWNER_APPROVAL"),

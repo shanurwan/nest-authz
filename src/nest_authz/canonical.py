@@ -10,14 +10,22 @@ from .domain import (
     ApprovalRequirement,
     Authority,
     AuthorizationRequest,
+    Condition,
+    ConditionOperator,
     ConditionStatus,
     Decision,
     DecisionEvidence,
     Obligation,
     Outcome,
+    FieldNamespace,
+    FieldReference,
+    Policy,
+    PolicyBundle,
     Reason,
     RequestContext,
     Resource,
+    Rule,
+    RuleEffect,
     Sha256Digest,
     Subject,
 )
@@ -166,6 +174,33 @@ def _encode_domain(value: object) -> bytes:
                 ("value", _encode_string(value.hex_value)),
             ),
         )
+    if value_type is FieldNamespace:
+        return _encode_record(
+            "nest-authz/field-namespace@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is FieldReference:
+        return _encode_record(
+            "nest-authz/field-reference@1",
+            (
+                ("namespace", _encode_domain(value.namespace)),
+                ("name", _encode_string(value.name)),
+            ),
+        )
+    if value_type is ConditionOperator:
+        return _encode_record(
+            "nest-authz/condition-operator@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is Condition:
+        return _encode_record(
+            "nest-authz/condition@1",
+            (
+                ("field", _encode_domain(value.field)),
+                ("operator", _encode_domain(value.operator)),
+                ("value", _encode_scalar(value.value)),
+            ),
+        )
     if value_type is RequestContext:
         return _encode_record(
             "nest-authz/request-context@1",
@@ -222,6 +257,44 @@ def _encode_domain(value: object) -> bytes:
             (
                 ("code", _encode_string(value.code)),
                 ("parameters", _encode_scalar_map(value.parameters)),
+            ),
+        )
+    if value_type is RuleEffect:
+        return _encode_record(
+            "nest-authz/rule-effect@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is Rule:
+        return _encode_record(
+            "nest-authz/rule@1",
+            (
+                ("identifier", _encode_string(value.identifier)),
+                ("effect", _encode_domain(value.effect)),
+                ("conditions", _encode_sequence(value.conditions)),
+                ("obligations", _encode_sequence(value.obligations)),
+                (
+                    "approval_requirement",
+                    _encode_optional_domain(value.approval_requirement),
+                ),
+            ),
+        )
+    if value_type is Policy:
+        return _encode_record(
+            "nest-authz/policy@1",
+            (
+                ("identifier", _encode_string(value.identifier)),
+                ("rules", _encode_sequence(value.rules)),
+            ),
+        )
+    if value_type is PolicyBundle:
+        return _encode_record(
+            "nest-authz/policy-bundle@1",
+            (
+                (
+                    "combining_algorithm",
+                    _encode_string(value.combining_algorithm),
+                ),
+                ("policies", _encode_sequence(value.policies)),
             ),
         )
     if value_type is DecisionEvidence:
