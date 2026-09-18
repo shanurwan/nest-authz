@@ -1,0 +1,87 @@
+name: nest_authz_delegated_authority
+description: Deterministic delegated transfer authority, approval authorization, revocation revalidation, and single-use reservation through NEST AuthZ.
+seed: 42
+layers:
+  auth: nest-authz.v1
+plugin_files:
+  - plugin.py
+validator: nest_authz_delegated_authority
+agents:
+  - name: authorization-gateway
+    role: nest_authz_gateway
+    config: {}
+  - name: payment-subagent
+    role: nest_authz_actor
+    config:
+      steps:
+        - at: 1
+          command: authorize
+          operation_id: operation:subagent-700
+          authority_profile: payment-subagent
+          action: payments.transfer
+          resource: account:alice
+          amount: 700
+        - at: 2
+          command: authorize
+          operation_id: operation:subagent-4000
+          authority_profile: payment-subagent
+          action: payments.transfer
+          resource: account:alice
+          amount: 4000
+  - name: finance-agent
+    role: nest_authz_actor
+    config:
+      steps:
+        - at: 3
+          command: authorize
+          operation_id: operation:finance-primary
+          authority_profile: finance-primary
+          action: payments.transfer
+          resource: account:alice
+          amount: 4000
+        - at: 7
+          command: authorize
+          operation_id: operation:finance-replay
+          authority_profile: finance-refresh
+          action: payments.transfer
+          resource: account:alice
+          amount: 3000
+  - name: mallory
+    role: nest_authz_actor
+    config:
+      steps:
+        - at: 4
+          command: approve
+          operation_id: operation:finance-primary
+          requirement: MANAGER_APPROVAL
+  - name: authorized-manager
+    role: nest_authz_actor
+    config:
+      steps:
+        - at: 5
+          command: approve
+          operation_id: operation:finance-primary
+          requirement: MANAGER_APPROVAL
+        - at: 8
+          command: approve
+          operation_id: operation:finance-replay
+          requirement: MANAGER_APPROVAL
+  - name: scenario-controller
+    role: nest_authz_actor
+    config:
+      steps:
+        - at: 6
+          command: revoke_and_revalidate
+          operation_id: operation:finance-primary
+          revoke_grants:
+            - grant:alice-finance
+        - at: 9
+          command: prepare_execution
+          operation_id: operation:finance-replay
+        - at: 10
+          command: reserve_execution
+          operation_id: operation:finance-replay
+        - at: 11
+          command: reserve_execution
+          operation_id: operation:finance-replay
+max_time: 20

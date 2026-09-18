@@ -20,5 +20,8 @@ python -m pip install --editable .
 python -m unittest discover -s tests -v
 ```
 
+The optional deterministic Nanda Town integration is documented in
+[`docs/nandatown-demo.md`](docs/nandatown-demo.md).
+
 
 Build with codex (gpt-5.6-sol xhigh )

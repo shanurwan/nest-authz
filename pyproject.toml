@@ -10,5 +10,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["cryptography==50.0.1"]
 
+[project.optional-dependencies]
+nandatown = ["nandatown>=0.2,<0.3"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"nest_authz.integrations.nandatown" = ["*.yaml"]
