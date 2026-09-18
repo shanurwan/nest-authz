@@ -90,6 +90,18 @@ decision have a canonical representation:
 - `ExecutionAuthorizationStatus`
 - `ExecutionAuthorizationResult`
 - `ExecutionPermit`
+- `SigningKeyId`
+- `Ed25519PublicKey`
+- `ArtifactSignature`
+- `SignatureScheme`
+- `ArtifactPurpose`
+- `ArtifactKind`
+- `TrustedKey`
+- `TrustStore`
+- `ArtifactAttestation`
+- `ArtifactVerificationStatus`
+- `ArtifactVerificationResult`
+- `TrustedPolicyBundle`
 
 The public operations are:
 
@@ -154,6 +166,11 @@ approver authorization and fresh execution-revalidation records, adds exact
 allowed Principals to approval requirements, and explicitly advances every
 affected approval, policy, decision, receipt, and pending-state schema.
 
+ADR 0010 adds detached-attestation, public-key trust, verification-evidence,
+and trusted-policy-wrapper records without changing an existing canonical
+record. Cryptographic private keys remain operational inputs and deliberately
+have no canonical schema.
+
 Map keys are strings. Entries are sorted lexicographically by the strict UTF-8
 bytes of their keys. The serialized map key is still a complete `S` frame, so
 the ordering rule and the encoded data are both explicit. Duplicate map keys
@@ -209,6 +226,12 @@ ADR 0009 declares each requirement's allowed-Principal collection
 non-semantic. It is sorted by strict UTF-8 Principal identifier bytes before
 storage and encoding. Execution revalidation records preserve typed evidence;
 they do not depend on caller collection order.
+
+ADR 0010 declares trusted-key order within a trust store and allowed-purpose
+order within a trusted key non-semantic. Keys are sorted by strict UTF-8 key-ID
+bytes, and purposes are sorted by strict UTF-8 enum-value bytes. Attestation
+fields and verification evidence are fixed records, not caller-ordered
+collections.
 
 ## String and Unicode Handling
 

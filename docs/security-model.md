@@ -225,6 +225,18 @@ Only successful fresh revalidation may produce an `ExecutionPermit`, and
 consumption MUST bind to that exact permit. Content identity and current
 security equivalence are distinct checks.
 
+### INV-015 — Artifact Authenticity Requires Explicit Purpose Trust
+
+A content digest proves stable identity, not origin. An artifact is
+authenticated only when its detached Ed25519 attestation verifies over the
+exact domain-separated artifact identity, its key ID resolves in the explicitly
+supplied `TrustStore`, and that key is authorized for the exact artifact
+purpose.
+
+Signature validity, signer trust, and signer authorization are separate
+checks. A self-signed artifact, or an artifact signed by a trusted key for a
+different purpose, MUST NOT cross a trusted-artifact boundary.
+
 ---
 
 ## Trust Boundary
@@ -251,9 +263,15 @@ binding and that the bound exact `Principal` appears in the applicable
 requirement's allowlist. It does not authenticate the assertion.
 
 `ExecutionPermit` proves deterministic internal consistency after fresh
-revalidation. It is not signed, does not establish issuer authenticity or
-non-repudiation, and cannot by itself provide distributed single-use
-consumption.
+revalidation. A bare permit is not authenticated. A separately verified
+detached attestation can authenticate issuance relative to the caller-supplied
+trust store, but neither the permit nor its attestation provides
+non-repudiation or distributed single-use consumption.
+
+The trust store is explicit caller-supplied security state. The core performs
+no network key discovery, platform trust lookup, external PKI validation, or
+principal-to-key inference. In particular, a valid `AuthorityGrant`
+attestation does not yet prove that its signing key belongs to the grantor.
 
 ---
 

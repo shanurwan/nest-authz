@@ -133,6 +133,43 @@ class ExecutionAuthorizationStatus(Enum):
     POLICY_BUNDLE_MISMATCH = "POLICY_BUNDLE_MISMATCH"
 
 
+class SignatureScheme(Enum):
+    """The closed set of supported artifact-signature schemes."""
+
+    ED25519 = "ED25519"
+
+
+class ArtifactPurpose(Enum):
+    """An exact trust purpose for an artifact-signing key."""
+
+    POLICY_BUNDLE = "POLICY_BUNDLE"
+    AUTHORITY_GRANT = "AUTHORITY_GRANT"
+    DECISION_RECEIPT = "DECISION_RECEIPT"
+    EXECUTION_PERMIT = "EXECUTION_PERMIT"
+
+
+class ArtifactKind(Enum):
+    """The closed canonical artifact type named by an attestation."""
+
+    POLICY_BUNDLE = "POLICY_BUNDLE"
+    AUTHORITY_GRANT = "AUTHORITY_GRANT"
+    DECISION_RECEIPT = "DECISION_RECEIPT"
+    EXECUTION_PERMIT = "EXECUTION_PERMIT"
+
+
+class ArtifactVerificationStatus(Enum):
+    """The deterministic result of detached artifact verification."""
+
+    VERIFIED = "VERIFIED"
+    DIGEST_MISMATCH = "DIGEST_MISMATCH"
+    SIGNATURE_INVALID = "SIGNATURE_INVALID"
+    UNKNOWN_KEY = "UNKNOWN_KEY"
+    KEY_NOT_TRUSTED_FOR_PURPOSE = "KEY_NOT_TRUSTED_FOR_PURPOSE"
+    ARTIFACT_KIND_MISMATCH = "ARTIFACT_KIND_MISMATCH"
+    PURPOSE_MISMATCH = "PURPOSE_MISMATCH"
+    SCHEME_UNSUPPORTED = "SCHEME_UNSUPPORTED"
+
+
 _Scalar: TypeAlias = str | int | bool | None
 _Fields: TypeAlias = tuple[tuple[str, _Scalar], ...]
 _ConditionResults: TypeAlias = tuple[tuple[str, ConditionStatus], ...]
@@ -334,6 +371,231 @@ class Sha256Digest:
 
     def __str__(self) -> str:
         return f"{self.algorithm}:{self.hex_value}"
+
+
+def _fixed_bytes(value: object, length: int, field_name: str) -> bytes:
+    if type(value) is not bytes:
+        raise TypeError(f"{field_name} must be bytes")
+    if len(value) != length:
+        raise ValueError(
+            f"{field_name} must contain exactly {length} bytes"
+        )
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class SigningKeyId:
+    """A stable semantic identifier for one signing key."""
+
+    identifier: str
+
+    def __post_init__(self) -> None:
+        _non_blank(self.identifier, "signing key identifier")
+
+
+@dataclass(frozen=True, slots=True)
+class Ed25519PublicKey:
+    """Exactly one raw 32-byte Ed25519 public key."""
+
+    value: bytes
+
+    def __post_init__(self) -> None:
+        _fixed_bytes(self.value, 32, "Ed25519 public key")
+
+    @property
+    def hex_value(self) -> str:
+        """Return exactly 64 lowercase hexadecimal characters."""
+
+        return self.value.hex()
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactSignature:
+    """Exactly one raw 64-byte Ed25519 artifact signature."""
+
+    value: bytes
+
+    def __post_init__(self) -> None:
+        _fixed_bytes(self.value, 64, "Ed25519 signature")
+
+    @property
+    def hex_value(self) -> str:
+        """Return exactly 128 lowercase hexadecimal characters."""
+
+        return self.value.hex()
+
+
+def _canonical_artifact_purposes(
+    value: object,
+) -> tuple[ArtifactPurpose, ...]:
+    purposes = _typed_tuple(
+        value,
+        ArtifactPurpose,
+        "allowed_purposes",
+    )
+    if not purposes:
+        raise ValueError("trusted keys must allow at least one purpose")
+    if len(set(purposes)) != len(purposes):
+        raise ValueError("allowed_purposes must not contain duplicates")
+    return tuple(
+        sorted(purposes, key=lambda purpose: purpose.value.encode("utf-8"))
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedKey:
+    """One public key trusted for an explicit immutable purpose set."""
+
+    key_id: SigningKeyId
+    public_key: Ed25519PublicKey
+    allowed_purposes: tuple[ArtifactPurpose, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.key_id) is not SigningKeyId:
+            raise TypeError("key_id must be a SigningKeyId")
+        if type(self.public_key) is not Ed25519PublicKey:
+            raise TypeError("public_key must be an Ed25519PublicKey")
+        object.__setattr__(
+            self,
+            "allowed_purposes",
+            _canonical_artifact_purposes(self.allowed_purposes),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TrustStore:
+    """An explicitly supplied immutable set of trusted public keys."""
+
+    trusted_keys: tuple[TrustedKey, ...] = ()
+
+    def __post_init__(self) -> None:
+        keys = _typed_tuple(self.trusted_keys, TrustedKey, "trusted_keys")
+        identifiers: set[str] = set()
+        for trusted_key in keys:
+            identifier = trusted_key.key_id.identifier
+            if identifier in identifiers:
+                raise ValueError(
+                    "trusted_keys must not contain duplicate key identifiers"
+                )
+            identifiers.add(identifier)
+        object.__setattr__(
+            self,
+            "trusted_keys",
+            tuple(
+                sorted(
+                    keys,
+                    key=lambda trusted_key: (
+                        trusted_key.key_id.identifier.encode("utf-8")
+                    ),
+                )
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactAttestation:
+    """A detached signature over one domain-separated artifact identity."""
+
+    scheme: SignatureScheme
+    key_id: SigningKeyId
+    purpose: ArtifactPurpose
+    artifact_kind: ArtifactKind
+    artifact_digest: Sha256Digest
+    signature: ArtifactSignature
+
+    def __post_init__(self) -> None:
+        if type(self.scheme) is not SignatureScheme:
+            raise TypeError("scheme must be a SignatureScheme")
+        if type(self.key_id) is not SigningKeyId:
+            raise TypeError("key_id must be a SigningKeyId")
+        if type(self.purpose) is not ArtifactPurpose:
+            raise TypeError("purpose must be an ArtifactPurpose")
+        if type(self.artifact_kind) is not ArtifactKind:
+            raise TypeError("artifact_kind must be an ArtifactKind")
+        if type(self.artifact_digest) is not Sha256Digest:
+            raise TypeError("artifact_digest must be a Sha256Digest")
+        if type(self.signature) is not ArtifactSignature:
+            raise TypeError("signature must be an ArtifactSignature")
+
+
+_ARTIFACT_VERIFICATION_RESULT_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ArtifactVerificationResult:
+    """Typed evidence from detached artifact-signature verification."""
+
+    status: ArtifactVerificationStatus
+    artifact_digest: Sha256Digest
+    attestation: ArtifactAttestation
+    expected_purpose: ArtifactPurpose
+    expected_artifact_kind: ArtifactKind
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "ArtifactVerificationResult can only be created by verification"
+        )
+
+    @classmethod
+    def _from_verification(
+        cls,
+        *,
+        status: ArtifactVerificationStatus,
+        artifact_digest: Sha256Digest,
+        attestation: ArtifactAttestation,
+        expected_purpose: ArtifactPurpose,
+        expected_artifact_kind: ArtifactKind,
+        _token: object,
+    ) -> ArtifactVerificationResult:
+        if _token is not _ARTIFACT_VERIFICATION_RESULT_TOKEN:
+            raise TypeError(
+                "ArtifactVerificationResult requires completed verification"
+            )
+        if type(status) is not ArtifactVerificationStatus:
+            raise TypeError("status must be an ArtifactVerificationStatus")
+        if type(artifact_digest) is not Sha256Digest:
+            raise TypeError("artifact_digest must be a Sha256Digest")
+        if type(attestation) is not ArtifactAttestation:
+            raise TypeError("attestation must be an ArtifactAttestation")
+        if type(expected_purpose) is not ArtifactPurpose:
+            raise TypeError("expected_purpose must be an ArtifactPurpose")
+        if type(expected_artifact_kind) is not ArtifactKind:
+            raise TypeError(
+                "expected_artifact_kind must be an ArtifactKind"
+            )
+
+        if status is ArtifactVerificationStatus.VERIFIED:
+            if artifact_digest != attestation.artifact_digest:
+                raise ValueError("VERIFIED evidence requires the exact digest")
+            if expected_purpose is not attestation.purpose:
+                raise ValueError("VERIFIED evidence requires the exact purpose")
+            if expected_artifact_kind is not attestation.artifact_kind:
+                raise ValueError("VERIFIED evidence requires the exact kind")
+            if attestation.scheme is not SignatureScheme.ED25519:
+                raise ValueError("VERIFIED evidence requires Ed25519")
+        elif status is ArtifactVerificationStatus.DIGEST_MISMATCH:
+            if artifact_digest == attestation.artifact_digest:
+                raise ValueError("DIGEST_MISMATCH requires different digests")
+        elif status is ArtifactVerificationStatus.PURPOSE_MISMATCH:
+            if expected_purpose is attestation.purpose:
+                raise ValueError("PURPOSE_MISMATCH requires different purposes")
+        elif status is ArtifactVerificationStatus.ARTIFACT_KIND_MISMATCH:
+            if expected_artifact_kind is attestation.artifact_kind:
+                raise ValueError(
+                    "ARTIFACT_KIND_MISMATCH requires different kinds"
+                )
+
+        result = object.__new__(cls)
+        object.__setattr__(result, "status", status)
+        object.__setattr__(result, "artifact_digest", artifact_digest)
+        object.__setattr__(result, "attestation", attestation)
+        object.__setattr__(result, "expected_purpose", expected_purpose)
+        object.__setattr__(
+            result,
+            "expected_artifact_kind",
+            expected_artifact_kind,
+        )
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -1272,6 +1534,64 @@ class PolicyBundle:
             "policies",
             _canonical_identified_records(self.policies, Policy, "policies"),
         )
+
+
+_TRUSTED_POLICY_BUNDLE_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class TrustedPolicyBundle:
+    """A policy bundle with successful exact-purpose trust evidence."""
+
+    bundle: PolicyBundle
+    attestation: ArtifactAttestation
+    verification: ArtifactVerificationResult
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "TrustedPolicyBundle can only be created by verification"
+        )
+
+    @classmethod
+    def _from_verification(
+        cls,
+        *,
+        bundle: PolicyBundle,
+        attestation: ArtifactAttestation,
+        verification: ArtifactVerificationResult,
+        _token: object,
+    ) -> TrustedPolicyBundle:
+        if _token is not _TRUSTED_POLICY_BUNDLE_TOKEN:
+            raise TypeError(
+                "TrustedPolicyBundle requires successful verification"
+            )
+        if type(bundle) is not PolicyBundle:
+            raise TypeError("bundle must be a PolicyBundle")
+        if type(attestation) is not ArtifactAttestation:
+            raise TypeError("attestation must be an ArtifactAttestation")
+        if type(verification) is not ArtifactVerificationResult:
+            raise TypeError(
+                "verification must be an ArtifactVerificationResult"
+            )
+        if verification.status is not ArtifactVerificationStatus.VERIFIED:
+            raise ValueError("trusted policy requires VERIFIED evidence")
+        if verification.attestation != attestation:
+            raise ValueError(
+                "trusted policy must contain the exact verified attestation"
+            )
+        if verification.expected_purpose is not ArtifactPurpose.POLICY_BUNDLE:
+            raise ValueError("trusted policy requires POLICY_BUNDLE purpose")
+        if (
+            verification.expected_artifact_kind
+            is not ArtifactKind.POLICY_BUNDLE
+        ):
+            raise ValueError("trusted policy requires POLICY_BUNDLE kind")
+
+        result = object.__new__(cls)
+        object.__setattr__(result, "bundle", bundle)
+        object.__setattr__(result, "attestation", attestation)
+        object.__setattr__(result, "verification", verification)
+        return result
 
 
 @dataclass(frozen=True, slots=True)

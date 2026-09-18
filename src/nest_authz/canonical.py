@@ -11,6 +11,12 @@ from .domain import (
     ApprovalRequirementState,
     ApprovalRequirementStatus,
     ApprovalStatus,
+    ArtifactAttestation,
+    ArtifactKind,
+    ArtifactPurpose,
+    ArtifactSignature,
+    ArtifactVerificationResult,
+    ArtifactVerificationStatus,
     ApproverAuthorizationResult,
     ApproverAuthorizationStatus,
     ApproverSubjectPrincipalBinding,
@@ -31,6 +37,7 @@ from .domain import (
     DecisionEvidence,
     DecisionReceipt,
     DelegationChain,
+    Ed25519PublicKey,
     ExecutionAuthorizationResult,
     ExecutionAuthorizationStatus,
     ExecutionPermit,
@@ -51,10 +58,15 @@ from .domain import (
     RuleEvaluationStatus,
     RevocationSet,
     Sha256Digest,
+    SignatureScheme,
+    SigningKeyId,
     Subject,
     SubjectAuthorityBindingResult,
     SubjectAuthorityBindingStatus,
     SubjectPrincipalBinding,
+    TrustedKey,
+    TrustedPolicyBundle,
+    TrustStore,
     VerifiedAuthority,
 )
 
@@ -211,6 +223,87 @@ def _encode_domain(value: object) -> bytes:
             (
                 ("algorithm", _encode_string(value.algorithm)),
                 ("value", _encode_string(value.hex_value)),
+            ),
+        )
+    if value_type is SigningKeyId:
+        return _encode_record(
+            "nest-authz/signing-key-id@1",
+            (("identifier", _encode_string(value.identifier)),),
+        )
+    if value_type is Ed25519PublicKey:
+        return _encode_record(
+            "nest-authz/ed25519-public-key@1",
+            (("value", _encode_string(value.hex_value)),),
+        )
+    if value_type is ArtifactSignature:
+        return _encode_record(
+            "nest-authz/artifact-signature@1",
+            (("value", _encode_string(value.hex_value)),),
+        )
+    if value_type is SignatureScheme:
+        return _encode_record(
+            "nest-authz/signature-scheme@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is ArtifactPurpose:
+        return _encode_record(
+            "nest-authz/artifact-purpose@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is ArtifactKind:
+        return _encode_record(
+            "nest-authz/artifact-kind@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is TrustedKey:
+        return _encode_record(
+            "nest-authz/trusted-key@1",
+            (
+                ("key_id", _encode_domain(value.key_id)),
+                ("public_key", _encode_domain(value.public_key)),
+                (
+                    "allowed_purposes",
+                    _encode_sequence(value.allowed_purposes),
+                ),
+            ),
+        )
+    if value_type is TrustStore:
+        return _encode_record(
+            "nest-authz/trust-store@1",
+            (("trusted_keys", _encode_sequence(value.trusted_keys)),),
+        )
+    if value_type is ArtifactAttestation:
+        return _encode_record(
+            "nest-authz/artifact-attestation@1",
+            (
+                ("scheme", _encode_domain(value.scheme)),
+                ("key_id", _encode_domain(value.key_id)),
+                ("purpose", _encode_domain(value.purpose)),
+                ("artifact_kind", _encode_domain(value.artifact_kind)),
+                ("artifact_digest", _encode_domain(value.artifact_digest)),
+                ("signature", _encode_domain(value.signature)),
+            ),
+        )
+    if value_type is ArtifactVerificationStatus:
+        return _encode_record(
+            "nest-authz/artifact-verification-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is ArtifactVerificationResult:
+        return _encode_record(
+            "nest-authz/artifact-verification-result@1",
+            (
+                ("status", _encode_domain(value.status)),
+                ("artifact_digest", _encode_domain(value.artifact_digest)),
+                ("attestation", _encode_domain(value.attestation)),
+                (
+                    "expected_purpose",
+                    _encode_domain(value.expected_purpose),
+                ),
+                (
+                    "expected_artifact_kind",
+                    _encode_domain(value.expected_artifact_kind),
+                ),
             ),
         )
     if value_type is Principal:
@@ -558,6 +651,15 @@ def _encode_domain(value: object) -> bytes:
                     _encode_string(value.combining_algorithm),
                 ),
                 ("policies", _encode_sequence(value.policies)),
+            ),
+        )
+    if value_type is TrustedPolicyBundle:
+        return _encode_record(
+            "nest-authz/trusted-policy-bundle@1",
+            (
+                ("bundle", _encode_domain(value.bundle)),
+                ("attestation", _encode_domain(value.attestation)),
+                ("verification", _encode_domain(value.verification)),
             ),
         )
     if value_type is RuleEvaluation:
