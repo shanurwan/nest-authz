@@ -27,18 +27,19 @@ from nest_authz import (
     Principal,
     RequestContext,
     Resource,
+    RevocationSet,
     Rule,
     RuleEffect,
     RuleEvaluationStatus,
-    RevocationSet,
     Subject,
     SubjectPrincipalBinding,
     canonical_bytes,
-    evaluate as _evaluate_with_authority,
     sha256_digest,
     validate_authority,
 )
-
+from nest_authz import (
+    evaluate as _evaluate_with_authority,
+)
 
 _DEFAULT_AUTHORITY = object()
 
@@ -156,9 +157,7 @@ class EvaluatorOutcomeTests(unittest.TestCase):
     def test_no_matching_rule_defaults_to_deny(self):
         rule = _rule(
             "rule:permit",
-            conditions=(
-                _condition("tenant_matches", name="tenant", value="north"),
-            ),
+            conditions=(_condition("tenant_matches", name="tenant", value="north"),),
         )
 
         decision = evaluate(_request({"tenant": "south"}), _bundle(rule))
@@ -522,9 +521,7 @@ class EvaluatorConditionTests(unittest.TestCase):
     def test_permit_cannot_mask_an_indeterminate_rule(self):
         indeterminate = _rule(
             "rule:indeterminate",
-            conditions=(
-                _condition("missing_region", name="region", value="north"),
-            ),
+            conditions=(_condition("missing_region", name="region", value="north"),),
         )
         decision = evaluate(
             _request({"allowed": True}),
@@ -571,7 +568,9 @@ class EvaluatorConditionTests(unittest.TestCase):
             ),
         )
 
-        decision = evaluate(_request(), _bundle(_rule("rule:permit", conditions=conditions)))
+        decision = evaluate(
+            _request(), _bundle(_rule("rule:permit", conditions=conditions))
+        )
 
         self.assertIs(decision.outcome, Outcome.PERMIT)
 
@@ -680,7 +679,10 @@ class EvaluatorAggregationAndEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(len(decision.evidence.rule_evaluations), 2)
         self.assertEqual(len(decision.evidence.condition_results), 2)
-        self.assertEqual(decision.evidence.request_digest, sha256_digest(_request({"allowed": True, "zone": "south"})))
+        self.assertEqual(
+            decision.evidence.request_digest,
+            sha256_digest(_request({"allowed": True, "zone": "south"})),
+        )
         self.assertEqual(
             decision.evidence.effective_grant_id,
             "grant:messages",
@@ -706,14 +708,15 @@ class EvaluatorAggregationAndEvidenceTests(unittest.TestCase):
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 imported_roots.update(
-                    alias.name.split(".", maxsplit=1)[0]
-                    for alias in node.names
+                    alias.name.split(".", maxsplit=1)[0] for alias in node.names
                 )
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
                 imported_roots.add((node.module or "").split(".", maxsplit=1)[0])
 
         self.assertTrue(prohibited_import_roots.isdisjoint(imported_roots))
-        self.assertNotIn("open", {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)})
+        self.assertNotIn(
+            "open", {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        )
 
         mutable_global_literals = []
         for node in tree.body:

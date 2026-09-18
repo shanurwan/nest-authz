@@ -1,5 +1,5 @@
-from dataclasses import fields
 import unittest
+from dataclasses import fields
 
 from nest_authz import (
     ApprovalRequirement,
@@ -169,7 +169,9 @@ class PolicyDomainTests(unittest.TestCase):
                 ConditionOperator.INTEGER_LESS_THAN_OR_EQUAL,
                 1,
             ),
-            Condition("condition:6", reference, ConditionOperator.INTEGER_GREATER_THAN, 1),
+            Condition(
+                "condition:6", reference, ConditionOperator.INTEGER_GREATER_THAN, 1
+            ),
             Condition(
                 "condition:7",
                 reference,
@@ -390,9 +392,7 @@ class PolicyCanonicalEncodingTests(unittest.TestCase):
         permit = PolicyBundle(
             (Policy("policy:1", (_rule("rule:1", RuleEffect.PERMIT),)),)
         )
-        deny = PolicyBundle(
-            (Policy("policy:1", (_rule("rule:1", RuleEffect.DENY),)),)
-        )
+        deny = PolicyBundle((Policy("policy:1", (_rule("rule:1", RuleEffect.DENY),)),))
 
         self.assertNotEqual(canonical_bytes(permit), canonical_bytes(deny))
         self.assertNotEqual(sha256_digest(permit), sha256_digest(deny))
@@ -405,9 +405,7 @@ class PolicyCanonicalEncodingTests(unittest.TestCase):
                     (
                         _rule(
                             "rule:1",
-                            conditions=(
-                                _condition(identifier="condition:first"),
-                            ),
+                            conditions=(_condition(identifier="condition:first"),),
                         ),
                     ),
                 ),
@@ -420,9 +418,7 @@ class PolicyCanonicalEncodingTests(unittest.TestCase):
                     (
                         _rule(
                             "rule:1",
-                            conditions=(
-                                _condition(identifier="condition:second"),
-                            ),
+                            conditions=(_condition(identifier="condition:second"),),
                         ),
                     ),
                 ),

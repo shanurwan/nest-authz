@@ -431,7 +431,13 @@ class DelegatedAuthorityValidationTests(unittest.TestCase):
     def test_constructor_inputs_are_defensively_copied(self):
         bounds = [["max_amount", 5000]]
         revoked = ["grant:old"]
-        grants = [_root(scope=AuthorityScope(Action("payments.transfer"), Resource("account:alice"), bounds))]
+        grants = [
+            _root(
+                scope=AuthorityScope(
+                    Action("payments.transfer"), Resource("account:alice"), bounds
+                )
+            )
+        ]
         scope = grants[0].scope
         chain = DelegationChain(grants)
         revocations = RevocationSet(revoked)

@@ -5,11 +5,15 @@ from __future__ import annotations
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey as CryptographyEd25519PrivateKey,
+)
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey as CryptographyEd25519PublicKey,
 )
 
 from .canonical import sha256_digest
 from .domain import (
+    _ARTIFACT_VERIFICATION_RESULT_TOKEN,
+    _TRUSTED_POLICY_BUNDLE_TOKEN,
     ArtifactAttestation,
     ArtifactKind,
     ArtifactPurpose,
@@ -26,10 +30,7 @@ from .domain import (
     TrustedKey,
     TrustedPolicyBundle,
     TrustStore,
-    _ARTIFACT_VERIFICATION_RESULT_TOKEN,
-    _TRUSTED_POLICY_BUNDLE_TOKEN,
 )
-
 
 _ATTESTATION_PREAMBLE = b"NEST-AUTHZ-ATTESTATION\x00\x01"
 _MAX_FIELD_LENGTH = (1 << 32) - 1
@@ -104,9 +105,7 @@ def artifact_signing_message(
     if type(purpose) is not ArtifactPurpose:
         raise TypeError("purpose must be an ArtifactPurpose")
     if purpose is not required_purpose:
-        raise ValueError(
-            "purpose does not match the artifact kind's version-1 purpose"
-        )
+        raise ValueError("purpose does not match the artifact kind's version-1 purpose")
     return attestation_signing_message(
         SignatureScheme.ED25519,
         purpose,
@@ -131,9 +130,7 @@ def sign_artifact(
     if type(purpose) is not ArtifactPurpose:
         raise TypeError("purpose must be an ArtifactPurpose")
     if purpose is not required_purpose:
-        raise ValueError(
-            "purpose does not match the artifact kind's version-1 purpose"
-        )
+        raise ValueError("purpose does not match the artifact kind's version-1 purpose")
 
     artifact_digest = sha256_digest(artifact)
     message = attestation_signing_message(
@@ -212,9 +209,7 @@ def verify_artifact(
             status = ArtifactVerificationStatus.SIGNATURE_INVALID
         else:
             if expected_purpose not in trusted_key.allowed_purposes:
-                status = (
-                    ArtifactVerificationStatus.KEY_NOT_TRUSTED_FOR_PURPOSE
-                )
+                status = ArtifactVerificationStatus.KEY_NOT_TRUSTED_FOR_PURPOSE
             else:
                 status = ArtifactVerificationStatus.VERIFIED
 

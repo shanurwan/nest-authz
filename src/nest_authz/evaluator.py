@@ -104,11 +104,7 @@ def _evaluate_condition(
 
     operator = condition.operator
     if operator is ConditionOperator.EXISTS:
-        return (
-            ConditionStatus.SATISFIED
-            if present
-            else ConditionStatus.UNSATISFIED
-        )
+        return ConditionStatus.SATISFIED if present else ConditionStatus.UNSATISFIED
 
     if not present:
         return ConditionStatus.MISSING_INPUT
@@ -118,16 +114,8 @@ def _evaluate_condition(
             return ConditionStatus.ERROR
         equal = actual == condition.value
         if operator is ConditionOperator.EQUALS:
-            return (
-                ConditionStatus.SATISFIED
-                if equal
-                else ConditionStatus.UNSATISFIED
-            )
-        return (
-            ConditionStatus.SATISFIED
-            if not equal
-            else ConditionStatus.UNSATISFIED
-        )
+            return ConditionStatus.SATISFIED if equal else ConditionStatus.UNSATISFIED
+        return ConditionStatus.SATISFIED if not equal else ConditionStatus.UNSATISFIED
 
     if type(actual) is not int:
         return ConditionStatus.ERROR
@@ -147,11 +135,7 @@ def _evaluate_condition(
     else:
         raise EvaluationError("unsupported condition operator")
 
-    return (
-        ConditionStatus.SATISFIED
-        if result
-        else ConditionStatus.UNSATISFIED
-    )
+    return ConditionStatus.SATISFIED if result else ConditionStatus.UNSATISFIED
 
 
 def _rule_status(
@@ -160,10 +144,7 @@ def _rule_status(
     statuses = tuple(status for _, status in condition_results)
     if ConditionStatus.UNSATISFIED in statuses:
         return RuleEvaluationStatus.NOT_MATCHED
-    if (
-        ConditionStatus.MISSING_INPUT in statuses
-        or ConditionStatus.ERROR in statuses
-    ):
+    if ConditionStatus.MISSING_INPUT in statuses or ConditionStatus.ERROR in statuses:
         return RuleEvaluationStatus.INDETERMINATE
     if all(status is ConditionStatus.SATISFIED for status in statuses):
         return RuleEvaluationStatus.MATCHED
@@ -238,7 +219,7 @@ def evaluate(
     evidence = DecisionEvidence(
         policy_bundle_digest=sha256_digest(bundle),
         request_digest=sha256_digest(request),
-        rule_evaluations=rule_evaluations,
+        rule_evaluations=tuple(rule_evaluations),
         authority_applicability=applicability,
         subject_authority_binding=holder_binding,
     )
@@ -249,9 +230,7 @@ def evaluate(
     )
     has_deny = any(rule.effect is RuleEffect.DENY for rule in matched_rules)
     approval_rules = tuple(
-        rule
-        for rule in matched_rules
-        if rule.effect is RuleEffect.APPROVAL_REQUIRED
+        rule for rule in matched_rules if rule.effect is RuleEffect.APPROVAL_REQUIRED
     )
     permit_rules = tuple(
         rule for rule in matched_rules if rule.effect is RuleEffect.PERMIT
@@ -312,8 +291,8 @@ def evaluate(
             Outcome.APPROVAL_REQUIRED,
             (Reason("APPROVAL_REQUIRED"),),
             evidence,
-            obligations,
-            approval_requirements,
+            tuple(obligations),
+            tuple(approval_requirements),
         )
 
     if permit_rules:
@@ -323,7 +302,7 @@ def evaluate(
             Outcome.PERMIT,
             (Reason("PERMIT_RULE_MATCHED"),),
             evidence,
-            obligations,
+            tuple(obligations),
         )
 
     return Decision(

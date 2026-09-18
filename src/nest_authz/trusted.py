@@ -5,6 +5,8 @@ from __future__ import annotations
 from .authenticated_delegation import authenticate_delegation_chain
 from .canonical import sha256_digest
 from .domain import (
+    _TRUSTED_AUTHORIZATION_RESULT_TOKEN,
+    _TRUSTED_EXECUTION_AUTHORIZATION_RESULT_TOKEN,
     AuthenticatedDelegatedAuthority,
     AuthorizationRequest,
     AuthorizationState,
@@ -22,8 +24,6 @@ from .domain import (
     TrustedExecutionAuthorizationStatus,
     TrustedPolicyBundle,
     TrustStore,
-    _TRUSTED_AUTHORIZATION_RESULT_TOKEN,
-    _TRUSTED_EXECUTION_AUTHORIZATION_RESULT_TOKEN,
 )
 from .evaluator import evaluate
 from .execution import revalidate_for_execution
@@ -43,13 +43,10 @@ def authorize_trusted(
         raise TypeError("trusted_policy must be a TrustedPolicyBundle")
     if type(authenticated_authority) is not AuthenticatedDelegatedAuthority:
         raise TypeError(
-            "authenticated_authority must be an "
-            "AuthenticatedDelegatedAuthority"
+            "authenticated_authority must be an AuthenticatedDelegatedAuthority"
         )
     if type(subject_binding) is not SubjectPrincipalBinding:
-        raise TypeError(
-            "subject_binding must be a SubjectPrincipalBinding"
-        )
+        raise TypeError("subject_binding must be a SubjectPrincipalBinding")
 
     verified_authority = authenticated_authority.verified_authority
     decision = evaluate(
@@ -63,9 +60,7 @@ def authorize_trusted(
         policy_bundle_digest=sha256_digest(trusted_policy.bundle),
         trusted_policy_digest=sha256_digest(trusted_policy),
         verified_authority_digest=sha256_digest(verified_authority),
-        authenticated_authority_digest=sha256_digest(
-            authenticated_authority
-        ),
+        authenticated_authority_digest=sha256_digest(authenticated_authority),
         decision=decision,
         _token=_TRUSTED_AUTHORIZATION_RESULT_TOKEN,
     )
@@ -99,9 +94,7 @@ def revalidate_trusted_for_execution(
     if type(current_state) is not AuthorizationState:
         raise TypeError("current_state must be an AuthorizationState")
     if type(current_subject_binding) is not SubjectPrincipalBinding:
-        raise TypeError(
-            "current_subject_binding must be a SubjectPrincipalBinding"
-        )
+        raise TypeError("current_subject_binding must be a SubjectPrincipalBinding")
 
     authentication = authenticate_delegation_chain(
         current_chain,
@@ -112,10 +105,7 @@ def revalidate_trusted_for_execution(
         trusted_authority_roots,
     )
     execution_authorization = None
-    if (
-        authentication.status
-        is DelegationAuthenticationStatus.AUTHENTICATED
-    ):
+    if authentication.status is DelegationAuthenticationStatus.AUTHENTICATED:
         execution_authorization = revalidate_for_execution(
             original_receipt,
             approved_state,
@@ -127,16 +117,11 @@ def revalidate_trusted_for_execution(
         )
         status = (
             TrustedExecutionAuthorizationStatus.AUTHORIZED
-            if execution_authorization.status
-            is ExecutionAuthorizationStatus.AUTHORIZED
-            else TrustedExecutionAuthorizationStatus
-            .EXECUTION_REVALIDATION_FAILED
+            if execution_authorization.status is ExecutionAuthorizationStatus.AUTHORIZED
+            else TrustedExecutionAuthorizationStatus.EXECUTION_REVALIDATION_FAILED
         )
     else:
-        status = (
-            TrustedExecutionAuthorizationStatus
-            .DELEGATION_AUTHENTICATION_FAILED
-        )
+        status = TrustedExecutionAuthorizationStatus.DELEGATION_AUTHENTICATION_FAILED
 
     return TrustedExecutionAuthorizationResult._from_trusted_revalidation(
         status=status,

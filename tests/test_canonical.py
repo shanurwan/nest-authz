@@ -1,20 +1,19 @@
-from hashlib import sha256
 import os
 import subprocess
 import sys
 import unittest
+from hashlib import sha256
 
 from nest_authz import (
     Action,
     ApprovalRequirement,
-    ApprovalRequirementState,
     ApprovalRequirementStatus,
     ApprovalStatus,
     ApproverAuthorizationStatus,
     ApproverSubjectPrincipalBinding,
-    AuthorityContext,
     AuthorityApplicabilityStatus,
     AuthorityBoundEvaluation,
+    AuthorityContext,
     AuthorityGrant,
     AuthorityScope,
     AuthorityValidationStatus,
@@ -25,25 +24,23 @@ from nest_authz import (
     ConditionStatus,
     Decision,
     DecisionEvidence,
-    DecisionReceipt,
     DelegationChain,
     ExecutionAuthorizationStatus,
-    Obligation,
-    Outcome,
     FieldNamespace,
     FieldReference,
+    Obligation,
+    Outcome,
     Policy,
     PolicyBundle,
-    PendingApproval,
     Principal,
     Reason,
     RequestContext,
     Resource,
+    RevocationSet,
     Rule,
     RuleEffect,
     RuleEvaluation,
     RuleEvaluationStatus,
-    RevocationSet,
     Sha256Digest,
     Subject,
     SubjectAuthorityBindingStatus,
@@ -61,16 +58,13 @@ from nest_authz import (
     validate_authority,
 )
 
-
 _SUBJECT_CANONICAL_HEX = (
     "4e4553542d415554485a2d43414e4f4e4943414c0001520000000000000049"
     "5300000000000000146e6573742d617574687a2f7375626a65637440314d00"
     "0000000000002353000000000000000a6964656e7469666965725300000000"
     "000000076167656e743a37"
 )
-_SUBJECT_DIGEST_HEX = (
-    "5a804e74f9c21b92ff085deb96b1a338ab56c67c019b7c14e5bd1fd6fe330495"
-)
+_SUBJECT_DIGEST_HEX = "5a804e74f9c21b92ff085deb96b1a338ab56c67c019b7c14e5bd1fd6fe330495"
 
 
 def _policy_bundle_digest():
@@ -167,9 +161,7 @@ def _execution_result():
     state = AuthorizationState(50)
     authority = validate_authority(chain, state).verified_authority
     holder = SubjectPrincipalBinding(request.subject, Principal("agent:7"))
-    receipt = create_decision_receipt(
-        evaluate(request, bundle, authority, holder)
-    )
+    receipt = create_decision_receipt(evaluate(request, bundle, authority, holder))
     pending = create_pending_approval(receipt, 50)
     actor = Subject("approver:owner")
     approver_binding = ApproverSubjectPrincipalBinding(actor, approver)
@@ -185,15 +177,19 @@ def _execution_result():
         authorization,
         51,
     )
-    return revalidate_for_execution(
-        receipt,
-        approved,
-        request,
-        bundle,
-        chain,
-        state,
-        holder,
-    ), approver_binding, authorization
+    return (
+        revalidate_for_execution(
+            receipt,
+            approved,
+            request,
+            bundle,
+            chain,
+            state,
+            holder,
+        ),
+        approver_binding,
+        authorization,
+    )
 
 
 class CanonicalEncodingTests(unittest.TestCase):
@@ -525,9 +521,7 @@ class CanonicalEncodingTests(unittest.TestCase):
         )
         receipt = create_decision_receipt(approval_decision)
         pending_approval = create_pending_approval(receipt, 50)
-        execution_result, approver_binding, approver_authorization = (
-            _execution_result()
-        )
+        execution_result, approver_binding, approver_authorization = _execution_result()
         self.assertIs(
             execution_result.status,
             ExecutionAuthorizationStatus.AUTHORIZED,

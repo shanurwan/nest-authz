@@ -1,6 +1,4 @@
 import ast
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
 import inspect
 import os
 import sqlite3
@@ -10,6 +8,8 @@ import tempfile
 import textwrap
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 
 import nest_authz.execution_enforcement as enforcement_module
 import nest_authz.sqlite_execution_store as sqlite_store_module
@@ -227,8 +227,7 @@ class AtomicExecutionEnforcementTests(unittest.TestCase):
 
         self.assertEqual(
             sum(
-                result.status
-                is ExecutionReservationStatus.NEW_RESERVATION
+                result.status is ExecutionReservationStatus.NEW_RESERVATION
                 for result in results
             ),
             1,
@@ -550,8 +549,7 @@ class AtomicExecutionEnforcementTests(unittest.TestCase):
     def test_23_many_concurrent_reservations_have_one_winner(self):
         attempt_count = 12
         stores = tuple(
-            SQLiteExecutionStore(self.database_path)
-            for _ in range(attempt_count)
+            SQLiteExecutionStore(self.database_path) for _ in range(attempt_count)
         )
         barrier = threading.Barrier(attempt_count)
 
@@ -591,12 +589,11 @@ class AtomicExecutionEnforcementTests(unittest.TestCase):
             return store.reserve(permit)
 
         with ThreadPoolExecutor(max_workers=2) as executor:
-            results = tuple(executor.map(reserve, zip(stores, permits)))
+            results = tuple(executor.map(reserve, zip(stores, permits, strict=True)))
 
         self.assertTrue(
             all(
-                result.status
-                is ExecutionReservationStatus.NEW_RESERVATION
+                result.status is ExecutionReservationStatus.NEW_RESERVATION
                 for result in results
             )
         )
@@ -626,8 +623,7 @@ class AtomicExecutionEnforcementTests(unittest.TestCase):
 
         self.assertTrue(
             all(
-                replay.status
-                is ExecutionReservationStatus.ALREADY_SUCCEEDED
+                replay.status is ExecutionReservationStatus.ALREADY_SUCCEEDED
                 for replay in replays
             )
         )

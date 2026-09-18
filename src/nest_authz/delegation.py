@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .canonical import sha256_digest
 from .domain import (
+    _VERIFIED_AUTHORITY_TOKEN,
     AuthorityGrant,
     AuthorityScope,
     AuthorityValidationResult,
@@ -11,7 +12,6 @@ from .domain import (
     AuthorizationState,
     DelegationChain,
     VerifiedAuthority,
-    _VERIFIED_AUTHORITY_TOKEN,
 )
 
 
@@ -122,7 +122,7 @@ def validate_authority(
     if root.parent_grant_id is not None:
         return failure(AuthorityValidationStatus.BROKEN_PROVENANCE, root.identifier)
 
-    for parent, child in zip(grants, grants[1:]):
+    for parent, child in zip(grants, grants[1:], strict=False):
         if child.parent_grant_id != parent.identifier:
             return failure(
                 AuthorityValidationStatus.BROKEN_PROVENANCE,
@@ -138,7 +138,7 @@ def validate_authority(
     if cycle is not None:
         return failure(AuthorityValidationStatus.CYCLE, cycle)
 
-    for parent, child in zip(grants, grants[1:]):
+    for parent, child in zip(grants, grants[1:], strict=False):
         if not _is_attenuation(child.scope, parent.scope):
             return failure(
                 AuthorityValidationStatus.BROADENED_AUTHORITY,

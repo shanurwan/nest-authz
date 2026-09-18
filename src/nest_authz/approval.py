@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .canonical import sha256_digest
 from .domain import (
+    _PENDING_APPROVAL_TOKEN,
     ApprovalRequirement,
     ApprovalRequirementState,
     ApprovalRequirementStatus,
@@ -13,7 +14,6 @@ from .domain import (
     DecisionReceipt,
     ExecutionPermit,
     PendingApproval,
-    _PENDING_APPROVAL_TOKEN,
 )
 
 
@@ -50,9 +50,7 @@ def _transition_requirement(
         authorization is not None
         and type(authorization) is not ApproverAuthorizationResult
     ):
-        raise TypeError(
-            "authorization must be an ApproverAuthorizationResult or None"
-        )
+        raise TypeError("authorization must be an ApproverAuthorizationResult or None")
     _validate_logical_time(approval, logical_time)
 
     if approval.status is ApprovalStatus.CONSUMED:
@@ -68,17 +66,14 @@ def _transition_requirement(
             "requirement is not part of the receipt approval set"
         )
     if selected.status is not ApprovalRequirementStatus.PENDING:
-        raise ApprovalTransitionError(
-            "only a pending requirement can transition"
-        )
+        raise ApprovalTransitionError("only a pending requirement can transition")
     if status in (
         ApprovalRequirementStatus.APPROVED,
         ApprovalRequirementStatus.REJECTED,
     ):
         if (
             authorization is None
-            or authorization.status
-            is not ApproverAuthorizationStatus.AUTHORIZED
+            or authorization.status is not ApproverAuthorizationStatus.AUTHORIZED
         ):
             raise ApprovalTransitionError(
                 "approval transition requires AUTHORIZED approver evidence"
@@ -216,9 +211,7 @@ def consume_approval(
             "execution permit does not bind the exact approved state"
         )
     if approval.status is not ApprovalStatus.APPROVED:
-        raise ApprovalTransitionError(
-            "only an approved approval state can be consumed"
-        )
+        raise ApprovalTransitionError("only an approved approval state can be consumed")
 
     return PendingApproval._from_transition(
         receipt=approval.receipt,

@@ -13,7 +13,13 @@ dist/
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+.demo-runs/
 
 # Local virtual environments
 .venv/
 venv/
+
+# Local execution-adapter state
+*.db
+*.sqlite
+*.sqlite3

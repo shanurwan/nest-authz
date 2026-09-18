@@ -22,17 +22,11 @@ def check_approver_authorization(
     if type(actor) is not Subject:
         raise TypeError("actor must be a Subject")
     if type(binding) is not ApproverSubjectPrincipalBinding:
-        raise TypeError(
-            "binding must be an ApproverSubjectPrincipalBinding"
-        )
+        raise TypeError("binding must be an ApproverSubjectPrincipalBinding")
     if type(required_requirement) is not ApprovalRequirement:
-        raise TypeError(
-            "required_requirement must be an ApprovalRequirement"
-        )
+        raise TypeError("required_requirement must be an ApprovalRequirement")
     if type(attempted_requirement) is not ApprovalRequirement:
-        raise TypeError(
-            "attempted_requirement must be an ApprovalRequirement"
-        )
+        raise TypeError("attempted_requirement must be an ApprovalRequirement")
 
     if required_requirement != attempted_requirement:
         status = ApproverAuthorizationStatus.REQUIREMENT_MISMATCH

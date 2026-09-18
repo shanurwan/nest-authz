@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .canonical import sha256_digest
-from .domain import ExecutionId, ExecutionPermit, _EXECUTION_ID_TOKEN
+from .domain import _EXECUTION_ID_TOKEN, ExecutionId, ExecutionPermit
 
 
 def execution_id_for(execution_permit: ExecutionPermit) -> ExecutionId:

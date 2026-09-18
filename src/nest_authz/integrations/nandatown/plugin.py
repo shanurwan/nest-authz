@@ -48,7 +48,6 @@ from nest_authz.integrations.nandatown.adapter import (
     build_demo_security_material,
 )
 
-
 _PLUGIN_ID = "nest-authz.v1"
 _MARKER = "nest_authz"
 _GATEWAY = "authorization-gateway"
@@ -131,7 +130,7 @@ class _Operation:
 class NestAuthzAuth:
     """Authenticate Town messages, then authorize tagged protected actions."""
 
-    def __init__(self, engine) -> None:
+    def __init__(self, engine: Any) -> None:
         self.engine = engine
         self._authentication = HmacAuth(engine)
         self.material = build_demo_security_material()
@@ -234,16 +233,12 @@ class NestAuthzAuth:
         trusted = result.trusted_authorization
         decision = trusted.decision if trusted is not None else None
         applicability = (
-            decision.evidence.authority_applicability
-            if decision is not None
-            else None
+            decision.evidence.authority_applicability if decision is not None else None
         )
         authentication = result.delegation_authentication
         effective_grant = None
         if result.authenticated_authority is not None:
-            effective_grant = (
-                result.authenticated_authority.verified_authority.grant_id
-            )
+            effective_grant = result.authenticated_authority.verified_authority.grant_id
         detail = {
             "requesting_agent": claimed_name,
             "action": action,
@@ -396,8 +391,7 @@ class NestAuthzAuth:
         if marker.get("command") == "revoke_and_revalidate":
             revocations = marker.get("revoke_grants", ())
             if not isinstance(revocations, list) or any(
-                type(item) is not str or not item.strip()
-                for item in revocations
+                type(item) is not str or not item.strip() for item in revocations
             ):
                 self._emit_rejection(
                     operation_id,
@@ -432,13 +426,9 @@ class NestAuthzAuth:
                 "requesting_agent": claimed_name,
                 "status": result.status.value,
                 "delegation_status": authentication.status.value,
-                "authority_status": (
-                    authentication.authority_validation.status.value
-                ),
+                "authority_status": (authentication.authority_validation.status.value),
                 "execution_status": (
-                    execution.status.value
-                    if execution is not None
-                    else "NOT_EVALUATED"
+                    execution.status.value if execution is not None else "NOT_EVALUATED"
                 ),
                 "offending_grant": authentication.offending_grant_id,
                 "revoked_grants": sorted(self._revoked_grants),
@@ -474,9 +464,7 @@ class NestAuthzAuth:
             )
             return False
 
-        reservation = self._execution_store.reserve(
-            operation.execution_permit
-        )
+        reservation = self._execution_store.reserve(operation.execution_permit)
         self.engine.emit(
             "nest-authz",
             "nest_execution_reservation",
@@ -488,15 +476,10 @@ class NestAuthzAuth:
                 "execution_permit_digest": str(
                     reservation.record.execution_permit_digest
                 ),
-                "logical_execution_count": (
-                    self._execution_store.record_count
-                ),
+                "logical_execution_count": (self._execution_store.record_count),
             },
         )
-        return (
-            reservation.status
-            is ExecutionReservationStatus.NEW_RESERVATION
-        )
+        return reservation.status is ExecutionReservationStatus.NEW_RESERVATION
 
 
 @role("nest_authz_actor")
@@ -536,16 +519,16 @@ class NestAuthzGateway(SimAgent):
         )
 
 
-def _events(trace, kind: str, subject: str):
+def _events(trace: Any, kind: str, subject: str) -> list[Any]:
     return trace.find(kind, subject=subject)
 
 
-def _ids(events) -> list[str]:
+def _ids(events: list[Any]) -> list[str]:
     return [event.event_id for event in events]
 
 
 @validator("nest_authz_delegated_authority")
-def delegated_authority_validator(spec, trace):
+def delegated_authority_validator(spec: Any, trace: Any) -> list[Any]:
     """Prove the scenario's security claims from non-vacuous trace facts."""
 
     in_scope = _events(
@@ -576,8 +559,7 @@ def delegated_authority_validator(spec, trace):
         len(over_bound) == 1
         and over_bound[0].detail.get("amount") == 4000
         and over_bound[0].detail.get("outcome") == "DENY"
-        and over_bound[0].detail.get("applicability_status")
-        == "BOUND_EXCEEDED"
+        and over_bound[0].detail.get("applicability_status") == "BOUND_EXCEEDED"
         and not _events(
             trace,
             "nest_request_admitted",
@@ -597,12 +579,10 @@ def delegated_authority_validator(spec, trace):
     )
     approval_ok = (
         len(approval_decisions) == 1
-        and approval_decisions[0].detail.get("outcome")
-        == "APPROVAL_REQUIRED"
+        and approval_decisions[0].detail.get("outcome") == "APPROVAL_REQUIRED"
         and len(approved) == 1
         and approved[0].detail.get("status") == "APPROVED"
-        and approved[0].detail.get("approved_by")
-        == "principal:authorized-manager"
+        and approved[0].detail.get("approved_by") == "principal:authorized-manager"
     )
 
     mallory = [
@@ -615,8 +595,7 @@ def delegated_authority_validator(spec, trace):
         if event.detail.get("requesting_agent") == "mallory"
     ]
     mallory_ok = (
-        len(mallory) == 1
-        and mallory[0].detail.get("status") == "PRINCIPAL_NOT_ALLOWED"
+        len(mallory) == 1 and mallory[0].detail.get("status") == "PRINCIPAL_NOT_ALLOWED"
     )
 
     revoked = _events(
@@ -626,11 +605,9 @@ def delegated_authority_validator(spec, trace):
     )
     revoked_ok = (
         len(revoked) == 1
-        and revoked[0].detail.get("status")
-        == "DELEGATION_AUTHENTICATION_FAILED"
+        and revoked[0].detail.get("status") == "DELEGATION_AUTHENTICATION_FAILED"
         and revoked[0].detail.get("authority_status") == "REVOKED"
-        and revoked[0].detail.get("offending_grant")
-        == "grant:alice-finance"
+        and revoked[0].detail.get("offending_grant") == "grant:alice-finance"
         and revoked[0].detail.get("execution_permit_digest") is None
     )
 
@@ -649,24 +626,17 @@ def delegated_authority_validator(spec, trace):
         "nest_execution_reservation",
         "operation:finance-replay",
     )
-    reservation_statuses = [
-        event.detail.get("status") for event in reservations
-    ]
-    execution_ids = {
-        event.detail.get("execution_id") for event in reservations
-    }
+    reservation_statuses = [event.detail.get("status") for event in reservations]
+    execution_ids = {event.detail.get("execution_id") for event in reservations}
     replay_ok = (
         len(fresh_decision) == 1
-        and fresh_decision[0].detail.get("outcome")
-        == "APPROVAL_REQUIRED"
+        and fresh_decision[0].detail.get("outcome") == "APPROVAL_REQUIRED"
         and len(fresh_approved) == 1
         and len(reservations) == 2
-        and reservation_statuses
-        == ["NEW_RESERVATION", "EXISTING_RESERVED"]
+        and reservation_statuses == ["NEW_RESERVATION", "EXISTING_RESERVED"]
         and len(execution_ids) == 1
         and all(
-            event.detail.get("logical_execution_count") == 1
-            for event in reservations
+            event.detail.get("logical_execution_count") == 1 for event in reservations
         )
     )
 

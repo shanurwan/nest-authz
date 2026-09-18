@@ -1,11 +1,11 @@
 import ast
-from dataclasses import replace
 import inspect
 import os
 import subprocess
 import sys
 import textwrap
 import unittest
+from dataclasses import replace
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -22,7 +22,6 @@ from nest_authz import (
     ArtifactVerificationError,
     AuthorityGrant,
     AuthorityScope,
-    AuthorityValidationStatus,
     AuthorizationRequest,
     AuthorizationState,
     Condition,
@@ -65,7 +64,6 @@ from nest_authz import (
     validate_authority,
     verify_policy_bundle,
 )
-
 
 _ALICE = "principal:alice"
 _AGENT_A = "principal:agent-a"
@@ -182,9 +180,9 @@ class _KeyMaterial:
             tuple(
                 self.trusted_key(
                     principal,
-                    purposes if purposes is not None else (
-                        ArtifactPurpose.AUTHORITY_GRANT,
-                    ),
+                    purposes
+                    if purposes is not None
+                    else (ArtifactPurpose.AUTHORITY_GRANT,),
                 )
                 for principal in selected
             )
@@ -316,7 +314,9 @@ class AuthenticatedDelegationTests(unittest.TestCase):
         keys = _KeyMaterial()
         result = _authenticate(_root_chain(), keys)
         self.assert_status(result, DelegationAuthenticationStatus.AUTHENTICATED)
-        self.assertEqual(result.authenticated_authority.verified_authority.grant_id, "grant:g1")
+        self.assertEqual(
+            result.authenticated_authority.verified_authority.grant_id, "grant:g1"
+        )
         self.assertTrue(result.grant_evidence[0].root_principal_trusted)
 
     def test_02_valid_signed_one_hop_delegation_authenticates(self):
@@ -332,7 +332,10 @@ class AuthenticatedDelegationTests(unittest.TestCase):
         keys = _KeyMaterial()
         result = _authenticate(_multi_hop_chain(), keys)
         self.assert_status(result, DelegationAuthenticationStatus.AUTHENTICATED)
-        self.assertEqual(result.authenticated_authority.verified_authority.principal, Principal(_AGENT_C))
+        self.assertEqual(
+            result.authenticated_authority.verified_authority.principal,
+            Principal(_AGENT_C),
+        )
 
     def test_04_root_signed_by_key_bound_to_wrong_principal_fails(self):
         keys = _KeyMaterial()
@@ -464,7 +467,9 @@ class AuthenticatedDelegationTests(unittest.TestCase):
     def test_14_structural_invalidity_cannot_be_rescued_by_signatures(self):
         keys = _KeyMaterial()
         root = _grant("grant:g1", _ALICE, _AGENT_A)
-        child = _grant("grant:g2", _AGENT_B, _AGENT_C, parent="grant:g1", max_amount=1000)
+        child = _grant(
+            "grant:g2", _AGENT_B, _AGENT_C, parent="grant:g1", max_amount=1000
+        )
         chain = DelegationChain((root, child))
         result = _authenticate(chain, keys)
         self.assert_status(
@@ -554,13 +559,21 @@ class AuthenticatedDelegationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PrincipalKeyRegistry((alice, alice))
         with self.assertRaises(ValueError):
-            PrincipalKeyRegistry((alice, PrincipalKeyBinding(Principal(_ALICE), keys.key_ids[_AGENT_A])))
+            PrincipalKeyRegistry(
+                (alice, PrincipalKeyBinding(Principal(_ALICE), keys.key_ids[_AGENT_A]))
+            )
         with self.assertRaises(ValueError):
-            PrincipalKeyRegistry((alice, PrincipalKeyBinding(Principal(_AGENT_A), keys.key_ids[_ALICE])))
+            PrincipalKeyRegistry(
+                (alice, PrincipalKeyBinding(Principal(_AGENT_A), keys.key_ids[_ALICE]))
+            )
 
     def test_22_registry_and_root_order_do_not_change_canonical_identity(self):
         keys = _KeyMaterial()
-        bindings = (keys.binding(_ALICE), keys.binding(_AGENT_A), keys.binding(_AGENT_B))
+        bindings = (
+            keys.binding(_ALICE),
+            keys.binding(_AGENT_A),
+            keys.binding(_AGENT_B),
+        )
         first = PrincipalKeyRegistry(bindings)
         second = PrincipalKeyRegistry(tuple(reversed(bindings)))
         self.assertEqual(canonical_bytes(first), canonical_bytes(second))
@@ -576,8 +589,22 @@ class AuthenticatedDelegationTests(unittest.TestCase):
         store = keys.store()
         registry = keys.registry()
         roots = TrustedAuthorityRoots((Principal(_ALICE),))
-        first = _authenticate(chain, keys, attestations=attestations, store=store, registry=registry, roots=roots)
-        second = _authenticate(chain, keys, attestations=attestations, store=store, registry=registry, roots=roots)
+        first = _authenticate(
+            chain,
+            keys,
+            attestations=attestations,
+            store=store,
+            registry=registry,
+            roots=roots,
+        )
+        second = _authenticate(
+            chain,
+            keys,
+            attestations=attestations,
+            store=store,
+            registry=registry,
+            roots=roots,
+        )
         self.assertEqual(first, second)
         self.assertEqual(canonical_bytes(first), canonical_bytes(second))
 
@@ -648,19 +675,25 @@ class AuthenticatedDelegationTests(unittest.TestCase):
         )
         self.assertIs(result.decision.outcome, Outcome.PERMIT)
         self.assertEqual(result.request_digest, sha256_digest(request))
-        self.assertEqual(result.authenticated_authority_digest, sha256_digest(authenticated))
+        self.assertEqual(
+            result.authenticated_authority_digest, sha256_digest(authenticated)
+        )
 
     def test_28_self_signed_mallory_policy_cannot_enter_trusted_path(self):
         bundle = _policy_bundle()
         private_key = Ed25519PrivateKey.generate()
         key_id = SigningKeyId("key:mallory-policy")
-        attestation = sign_artifact(bundle, private_key, key_id, ArtifactPurpose.POLICY_BUNDLE)
+        attestation = sign_artifact(
+            bundle, private_key, key_id, ArtifactPurpose.POLICY_BUNDLE
+        )
         with self.assertRaises(ArtifactVerificationError):
             verify_policy_bundle(bundle, attestation, TrustStore())
 
     def test_29_trusted_policy_plus_unauthenticated_delegation_cannot_permit(self):
         chain = _one_hop_chain()
-        merely_valid = validate_authority(chain, AuthorizationState(100)).verified_authority
+        merely_valid = validate_authority(
+            chain, AuthorizationState(100)
+        ).verified_authority
         with self.assertRaises(TypeError):
             authorize_trusted(
                 _request(),
@@ -704,17 +737,29 @@ class AuthenticatedDelegationTests(unittest.TestCase):
             keys,
             roots=TrustedAuthorityRoots((Principal(_AGENT_B),)),
         )
-        self.assert_status(denied, DelegationAuthenticationStatus.UNTRUSTED_ROOT_PRINCIPAL, "grant:b-root")
+        self.assert_status(
+            denied,
+            DelegationAuthenticationStatus.UNTRUSTED_ROOT_PRINCIPAL,
+            "grant:b-root",
+        )
         self.assert_status(allowed, DelegationAuthenticationStatus.AUTHENTICATED)
 
     def test_33_valid_signatures_do_not_rescue_multi_hop_scope_widening(self):
         keys = _KeyMaterial()
         root = _grant("grant:g1", _ALICE, _AGENT_A, max_amount=5000)
-        child = _grant("grant:g2", _AGENT_A, _AGENT_B, parent="grant:g1", max_amount=1000)
-        leaf = _grant("grant:g3", _AGENT_B, _AGENT_C, parent="grant:g2", max_amount=2000)
+        child = _grant(
+            "grant:g2", _AGENT_A, _AGENT_B, parent="grant:g1", max_amount=1000
+        )
+        leaf = _grant(
+            "grant:g3", _AGENT_B, _AGENT_C, parent="grant:g2", max_amount=2000
+        )
         chain = DelegationChain((root, child, leaf))
         result = _authenticate(chain, keys)
-        self.assert_status(result, DelegationAuthenticationStatus.STRUCTURAL_AUTHORITY_INVALID, "grant:g3")
+        self.assert_status(
+            result,
+            DelegationAuthenticationStatus.STRUCTURAL_AUTHORITY_INVALID,
+            "grant:g3",
+        )
 
     def test_34_replacing_signed_child_artifact_fails(self):
         keys = _KeyMaterial()
@@ -723,7 +768,9 @@ class AuthenticatedDelegationTests(unittest.TestCase):
         replacement = replace(original.grants[1], scope=_scope(900))
         chain = DelegationChain((original.grants[0], replacement))
         result = _authenticate(chain, keys, attestations=attestations)
-        self.assert_status(result, DelegationAuthenticationStatus.GRANT_ARTIFACT_MISMATCH, "grant:g2")
+        self.assert_status(
+            result, DelegationAuthenticationStatus.GRANT_ARTIFACT_MISMATCH, "grant:g2"
+        )
 
     def test_35_attestation_collection_rejects_duplicates_and_unknown_entries(self):
         keys = _KeyMaterial()
@@ -732,8 +779,14 @@ class AuthenticatedDelegationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             GrantAttestationSet((entry, entry))
         unknown = GrantAttestation("grant:unknown", entry.attestation)
-        result = _authenticate(chain, keys, attestations=GrantAttestationSet((entry, unknown)))
-        self.assert_status(result, DelegationAuthenticationStatus.UNKNOWN_GRANT_ATTESTATION, "grant:unknown")
+        result = _authenticate(
+            chain, keys, attestations=GrantAttestationSet((entry, unknown))
+        )
+        self.assert_status(
+            result,
+            DelegationAuthenticationStatus.UNKNOWN_GRANT_ATTESTATION,
+            "grant:unknown",
+        )
 
     def test_36_factory_protected_authenticated_authority_cannot_be_fabricated(self):
         from nest_authz import AuthenticatedDelegatedAuthority
@@ -771,7 +824,9 @@ class AuthenticatedDelegationTests(unittest.TestCase):
         bundle = _policy_bundle(RuleEffect.APPROVAL_REQUIRED)
         trusted_policy = _trusted_policy(bundle)
         binding = SubjectPrincipalBinding(request.subject, Principal(_AGENT_B))
-        trusted_decision = authorize_trusted(request, trusted_policy, authenticated, binding)
+        trusted_decision = authorize_trusted(
+            request, trusted_policy, authenticated, binding
+        )
         receipt = create_decision_receipt(trusted_decision.decision)
         pending = create_pending_approval(receipt, 100)
         requirement = receipt.approval_requirements[0]
@@ -782,7 +837,9 @@ class AuthenticatedDelegationTests(unittest.TestCase):
             requirement,
             requirement,
         )
-        approved = approve_requirement(pending, requirement, approval_authorization, 101)
+        approved = approve_requirement(
+            pending, requirement, approval_authorization, 101
+        )
 
         result = revalidate_trusted_for_execution(
             receipt,
@@ -809,12 +866,22 @@ class AuthenticatedDelegationTests(unittest.TestCase):
         store = keys.store()
         registry = keys.registry()
         roots = TrustedAuthorityRoots((Principal(_ALICE),))
-        authenticated = _authenticate(chain, keys, state=state, attestations=attestations, store=store, registry=registry, roots=roots).authenticated_authority
+        authenticated = _authenticate(
+            chain,
+            keys,
+            state=state,
+            attestations=attestations,
+            store=store,
+            registry=registry,
+            roots=roots,
+        ).authenticated_authority
         request = _request()
         bundle = _policy_bundle(RuleEffect.APPROVAL_REQUIRED)
         trusted_policy = _trusted_policy(bundle)
         binding = SubjectPrincipalBinding(request.subject, Principal(_AGENT_B))
-        decision = authorize_trusted(request, trusted_policy, authenticated, binding).decision
+        decision = authorize_trusted(
+            request, trusted_policy, authenticated, binding
+        ).decision
         receipt = create_decision_receipt(decision)
         pending = create_pending_approval(receipt, 100)
         requirement = receipt.approval_requirements[0]
@@ -893,9 +960,7 @@ class AuthenticatedDelegationTests(unittest.TestCase):
         result = _authenticate(
             chain,
             keys,
-            attestations=GrantAttestationSet(
-                (GrantAttestation("grant:g1", invalid),)
-            ),
+            attestations=GrantAttestationSet((GrantAttestation("grant:g1", invalid),)),
         )
         self.assert_status(
             result,

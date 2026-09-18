@@ -51,7 +51,6 @@ from nest_authz import (
     validate_authority,
 )
 
-
 MANAGER = Principal("principal:manager")
 SECURITY = Principal("principal:security")
 MALLORY = Principal("principal:mallory")
@@ -758,8 +757,7 @@ class ExecutionRevalidationTests(unittest.TestCase):
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Import):
                         imported_roots.update(
-                            alias.name.split(".", maxsplit=1)[0]
-                            for alias in node.names
+                            alias.name.split(".", maxsplit=1)[0] for alias in node.names
                         )
                     elif isinstance(node, ast.ImportFrom) and node.level == 0:
                         imported_roots.add(
@@ -768,9 +766,7 @@ class ExecutionRevalidationTests(unittest.TestCase):
                     elif isinstance(node, ast.Name):
                         names.add(node.id)
 
-                self.assertTrue(
-                    prohibited_import_roots.isdisjoint(imported_roots)
-                )
+                self.assertTrue(prohibited_import_roots.isdisjoint(imported_roots))
                 self.assertNotIn("open", names)
 
 

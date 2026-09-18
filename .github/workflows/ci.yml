@@ -1,0 +1,103 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install --editable .
+      - run: python -m unittest discover -s tests -v
+
+  quality:
+    name: lint, typing, coverage, source hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install --editable ".[dev]"
+      - run: >-
+          python -m pip install
+          "nandatown @ git+https://github.com/projnanda/nandatown.git@17fbc7902be49683aee5f7610a0a1dcf8c803b3e"
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+      - run: python -m mypy
+      - run: python scripts/security_source_scan.py
+      - run: python -m coverage run -m unittest discover -s tests
+      - run: python -m coverage report
+
+  nandatown:
+    name: Nanda Town integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install --editable .
+      - run: >-
+          python -m pip install
+          "nandatown @ git+https://github.com/projnanda/nandatown.git@17fbc7902be49683aee5f7610a0a1dcf8c803b3e"
+      - run: >-
+          python -m unittest discover -s tests
+          -p "test_nandatown_integration.py" -v
+      - run: >-
+          nandatown run
+          src/nest_authz/integrations/nandatown/delegated_authority.yaml
+          --out .demo-runs --seed 42
+
+  package:
+    name: build and inspect distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install ".[dev]"
+      - run: python -m build
+      - run: python -m twine check dist/*
+      - run: python scripts/check_release_artifacts.py dist
+      - name: Install wheel outside the checkout
+        run: |
+          python -m venv /tmp/nest-authz-wheel
+          /tmp/nest-authz-wheel/bin/python -m pip install dist/*.whl
+          cd /tmp
+          /tmp/nest-authz-wheel/bin/python -c "import nest_authz; print(nest_authz.__name__)"
+
+  dependency-audit:
+    name: dependency advisory audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install . pip-audit
+      - run: python -m pip_audit --local

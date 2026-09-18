@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import sqlite3
-from typing import Iterator
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from .canonical import sha256_digest
 from .domain import (
@@ -17,7 +17,6 @@ from .domain import (
     Sha256Digest,
 )
 from .execution_enforcement import execution_id_for
-
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS execution_records (
@@ -87,9 +86,7 @@ def _reference(value: object, field_name: str) -> str:
     try:
         value.encode("utf-8", errors="strict")
     except UnicodeEncodeError as error:
-        raise ValueError(
-            f"{field_name} must be encodable as strict UTF-8"
-        ) from error
+        raise ValueError(f"{field_name} must be encodable as strict UTF-8") from error
     if not value.strip():
         raise ValueError(f"{field_name} must not be blank")
     return value
@@ -97,9 +94,7 @@ def _reference(value: object, field_name: str) -> str:
 
 def _digest_from_text(value: object) -> Sha256Digest:
     if type(value) is not str or not value.startswith("sha256:"):
-        raise ExecutionStoreError(
-            "stored execution-permit digest is malformed"
-        )
+        raise ExecutionStoreError("stored execution-permit digest is malformed")
     try:
         return Sha256Digest.from_hex(value.removeprefix("sha256:"))
     except (TypeError, ValueError) as error:
@@ -119,12 +114,8 @@ class SQLiteExecutionStore:
     ) -> None:
         self._database_path = _reference(database_path, "database_path")
         if self._database_path == ":memory:":
-            raise ValueError(
-                "SQLiteExecutionStore requires a durable file database"
-            )
-        if type(timeout_seconds) not in (int, float) or type(
-            timeout_seconds
-        ) is bool:
+            raise ValueError("SQLiteExecutionStore requires a durable file database")
+        if type(timeout_seconds) not in (int, float) or type(timeout_seconds) is bool:
             raise TypeError("timeout_seconds must be an integer or float")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
@@ -314,9 +305,7 @@ class SQLiteExecutionStore:
                 (str(execution_id),),
             ).fetchone()
             if row is None:
-                raise ExecutionRecordNotFoundError(
-                    "execution record does not exist"
-                )
+                raise ExecutionRecordNotFoundError("execution record does not exist")
             current = self._record_from_row(row, execution_id)
             if current.execution_permit_digest != permit_digest:
                 raise ExecutionPermitMismatchError(

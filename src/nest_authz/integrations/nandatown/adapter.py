@@ -56,7 +56,6 @@ from nest_authz import (
     verify_policy_bundle,
 )
 
-
 # TEST-ONLY / PUBLIC DEMO MATERIAL. These deterministic Ed25519 seeds are
 # intentionally published so repeat scenario runs produce the same artifact
 # identities. They provide no secrecy and MUST NEVER be reused operationally.
@@ -99,13 +98,9 @@ class NandaAuthorityProfile:
         if type(self.chain) is not DelegationChain:
             raise TypeError("chain must be a DelegationChain")
         if type(self.grant_attestations) is not GrantAttestationSet:
-            raise TypeError(
-                "grant_attestations must be a GrantAttestationSet"
-            )
+            raise TypeError("grant_attestations must be a GrantAttestationSet")
         if type(self.subject_binding) is not SubjectPrincipalBinding:
-            raise TypeError(
-                "subject_binding must be a SubjectPrincipalBinding"
-            )
+            raise TypeError("subject_binding must be a SubjectPrincipalBinding")
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,18 +120,12 @@ class NandaSecurityMaterial:
         if type(self.trust_store) is not TrustStore:
             raise TypeError("trust_store must be a TrustStore")
         if type(self.principal_key_registry) is not PrincipalKeyRegistry:
-            raise TypeError(
-                "principal_key_registry must be a PrincipalKeyRegistry"
-            )
+            raise TypeError("principal_key_registry must be a PrincipalKeyRegistry")
         if type(self.trusted_authority_roots) is not TrustedAuthorityRoots:
-            raise TypeError(
-                "trusted_authority_roots must be TrustedAuthorityRoots"
-            )
+            raise TypeError("trusted_authority_roots must be TrustedAuthorityRoots")
         profiles = tuple(self.authority_profiles)
         if any(type(item) is not NandaAuthorityProfile for item in profiles):
-            raise TypeError(
-                "authority_profiles must contain NandaAuthorityProfile"
-            )
+            raise TypeError("authority_profiles must contain NandaAuthorityProfile")
         identifiers = tuple(item.identifier for item in profiles)
         if len(set(identifiers)) != len(identifiers):
             raise ValueError("authority profile identifiers must be unique")
@@ -151,9 +140,7 @@ class NandaSecurityMaterial:
             ),
         )
         if type(self.approval_requirement) is not ApprovalRequirement:
-            raise TypeError(
-                "approval_requirement must be an ApprovalRequirement"
-            )
+            raise TypeError("approval_requirement must be an ApprovalRequirement")
 
     def profile(
         self,
@@ -163,10 +150,7 @@ class NandaSecurityMaterial:
         """Resolve only an exact configured profile/agent pair."""
 
         for profile in self.authority_profiles:
-            if (
-                profile.identifier == identifier
-                and profile.agent_name == agent_name
-            ):
+            if profile.identifier == identifier and profile.agent_name == agent_name:
                 return profile
         return None
 
@@ -219,7 +203,7 @@ class NandaTownAuthorizationAdapter:
         authority_profile: str,
         action: str,
         resource: str,
-        context: Mapping[str, object],
+        context: Mapping[str, str | int | bool | None],
         state: AuthorizationState,
     ) -> NandaAuthorizationResult:
         """Authorize one exact Town action through all NEST trust gates."""
@@ -263,8 +247,7 @@ class NandaTownAuthorizationAdapter:
         )
         authenticated = authentication.authenticated_authority
         if (
-            authentication.status
-            is not DelegationAuthenticationStatus.AUTHENTICATED
+            authentication.status is not DelegationAuthenticationStatus.AUTHENTICATED
             or authenticated is None
         ):
             return NandaAuthorizationResult(
@@ -349,9 +332,7 @@ def _policy_bundle(
         ),
         approval_requirements=(approval_requirement,),
     )
-    return PolicyBundle(
-        (Policy("policy:nandatown-transfers", (permit, approval)),)
-    )
+    return PolicyBundle((Policy("policy:nandatown-transfers", (permit, approval)),))
 
 
 def build_demo_security_material() -> NandaSecurityMaterial:
@@ -368,15 +349,9 @@ def build_demo_security_material() -> NandaSecurityMaterial:
     )
     bundle = _policy_bundle(approval_requirement)
 
-    policy_private = Ed25519PrivateKey.from_private_bytes(
-        _DEMO_ONLY_POLICY_KEY_SEED
-    )
-    alice_private = Ed25519PrivateKey.from_private_bytes(
-        _DEMO_ONLY_ALICE_KEY_SEED
-    )
-    finance_private = Ed25519PrivateKey.from_private_bytes(
-        _DEMO_ONLY_FINANCE_KEY_SEED
-    )
+    policy_private = Ed25519PrivateKey.from_private_bytes(_DEMO_ONLY_POLICY_KEY_SEED)
+    alice_private = Ed25519PrivateKey.from_private_bytes(_DEMO_ONLY_ALICE_KEY_SEED)
+    finance_private = Ed25519PrivateKey.from_private_bytes(_DEMO_ONLY_FINANCE_KEY_SEED)
     policy_key_id = SigningKeyId("key:demo-policy")
     alice_key_id = SigningKeyId("key:demo-alice")
     finance_key_id = SigningKeyId("key:demo-finance-agent")

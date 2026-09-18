@@ -13,7 +13,6 @@ from .domain import (
     VerifiedAuthority,
 )
 
-
 _Scalar: TypeAlias = str | int | bool | None
 
 
@@ -68,9 +67,7 @@ def check_authority_applicability(
         _evaluate_bound(request, name, upper_bound)
         for name, upper_bound in authority.scope.context_upper_bounds
     )
-    bound_statuses = tuple(
-        evaluation.status for evaluation in bound_evaluations
-    )
+    bound_statuses = tuple(evaluation.status for evaluation in bound_evaluations)
 
     if not action_matches:
         status = AuthorityApplicabilityStatus.ACTION_MISMATCH

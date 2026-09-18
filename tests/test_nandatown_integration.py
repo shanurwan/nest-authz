@@ -1,11 +1,11 @@
 import ast
-from dataclasses import replace
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 
 from nest_authz import (
     AuthorizationState,
@@ -18,7 +18,6 @@ from nest_authz import (
     SubjectPrincipalBinding,
 )
 from nest_authz.integrations.nandatown import (
-    NandaSecurityMaterial,
     NandaTownAuthorizationAdapter,
     build_demo_security_material,
 )
@@ -44,9 +43,7 @@ _SCENARIO = _INTEGRATION / "delegated_authority.yaml"
 
 def _profile(material, identifier):
     return next(
-        item
-        for item in material.authority_profiles
-        if item.identifier == identifier
+        item for item in material.authority_profiles if item.identifier == identifier
     )
 
 
@@ -59,9 +56,7 @@ def _with_profile(material, replacement):
 
 
 def _authorize(material=None, *, amount=700):
-    adapter = NandaTownAuthorizationAdapter(
-        material or build_demo_security_material()
-    )
+    adapter = NandaTownAuthorizationAdapter(material or build_demo_security_material())
     return adapter.authorize_action(
         agent_name="payment-subagent",
         authority_profile="payment-subagent",
@@ -150,8 +145,7 @@ class NandaTownAdapterTests(unittest.TestCase):
         self.assertIs(result.outcome, Outcome.DENY)
         self.assertIsNotNone(result.trusted_authorization)
         evidence = (
-            result.trusted_authorization.decision.evidence
-            .subject_authority_binding
+            result.trusted_authorization.decision.evidence.subject_authority_binding
         )
         self.assertIs(
             evidence.status,
@@ -166,8 +160,7 @@ class NandaTownAdapterTests(unittest.TestCase):
 
         self.assertIs(result.outcome, Outcome.DENY)
         self.assertEqual(
-            result.trusted_authorization.decision.evidence
-            .authority_applicability.status.value,
+            result.trusted_authorization.decision.evidence.authority_applicability.status.value,
             "BOUND_EXCEEDED",
         )
 
@@ -179,12 +172,7 @@ class NandaTownAdapterTests(unittest.TestCase):
 
         self.assertEqual(
             tuple(item.identifier for item in copied.authority_profiles),
-            tuple(
-                sorted(
-                    item.identifier
-                    for item in material.authority_profiles
-                )
-            ),
+            tuple(sorted(item.identifier for item in material.authority_profiles)),
         )
 
 
@@ -212,8 +200,7 @@ class NandaTownScenarioTests(unittest.TestCase):
         return [
             event
             for event in cls.events
-            if event.kind == kind
-            and (subject is None or event.subject == subject)
+            if event.kind == kind and (subject is None or event.subject == subject)
         ]
 
     def stage(self, name):
@@ -384,11 +371,7 @@ class NandaTownScenarioTests(unittest.TestCase):
 def _authorization_semantics(bundle_dir):
     bundle = load_bundle(bundle_dir)
     return tuple(
-        {
-            key: value
-            for key, value in event.model_dump().items()
-            if key != "run_id"
-        }
+        {key: value for key, value in event.model_dump().items() if key != "run_id"}
         for event in bundle["events"]
         if event.kind.startswith("nest_")
     )

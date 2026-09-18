@@ -1,11 +1,11 @@
 import ast
-from dataclasses import fields
 import importlib
 import inspect
 import os
 import subprocess
 import sys
 import unittest
+from dataclasses import fields
 
 from nest_authz import (
     Action,
@@ -23,11 +23,10 @@ from nest_authz import (
     Condition,
     ConditionOperator,
     DelegationChain,
+    ExecutionAuthorizationStatus,
     FieldNamespace,
     FieldReference,
-    ExecutionAuthorizationStatus,
     Outcome,
-    PendingApproval,
     Policy,
     PolicyBundle,
     Principal,
@@ -51,7 +50,6 @@ from nest_authz import (
     sha256_digest,
     validate_authority,
 )
-
 
 OWNER_PRINCIPAL = Principal("principal:owner-approver")
 SECURITY_PRINCIPAL = Principal("principal:security-approver")
@@ -317,9 +315,7 @@ class DecisionReceiptTests(unittest.TestCase):
 
     def test_changing_holder_binding_changes_receipt_digest(self):
         first = _authorization()["receipt"]
-        changed = _authorization(
-            binding_principal="principal:mallory"
-        )["receipt"]
+        changed = _authorization(binding_principal="principal:mallory")["receipt"]
 
         self.assertNotEqual(
             first.subject_principal_binding_evidence_digest,
@@ -361,9 +357,7 @@ class DecisionReceiptTests(unittest.TestCase):
         )
 
     def test_changing_final_decision_changes_receipt_digest(self):
-        approval = _authorization(
-            effect=RuleEffect.APPROVAL_REQUIRED
-        )["receipt"]
+        approval = _authorization(effect=RuleEffect.APPROVAL_REQUIRED)["receipt"]
         permit = _authorization(effect=RuleEffect.PERMIT)["receipt"]
 
         self.assertNotEqual(approval.decision_digest, permit.decision_digest)
@@ -802,8 +796,7 @@ class ApprovalAdversarialTests(unittest.TestCase):
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Import):
                         imported_roots.update(
-                            alias.name.split(".", maxsplit=1)[0]
-                            for alias in node.names
+                            alias.name.split(".", maxsplit=1)[0] for alias in node.names
                         )
                     elif isinstance(node, ast.ImportFrom) and node.level == 0:
                         imported_roots.add(
@@ -812,9 +805,7 @@ class ApprovalAdversarialTests(unittest.TestCase):
                     elif isinstance(node, ast.Name):
                         names.add(node.id)
 
-                self.assertTrue(
-                    prohibited_import_roots.isdisjoint(imported_roots)
-                )
+                self.assertTrue(prohibited_import_roots.isdisjoint(imported_roots))
                 self.assertNotIn("open", names)
 
 

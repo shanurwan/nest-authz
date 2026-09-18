@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from .canonical import sha256_digest
 from .domain import (
+    _DECISION_RECEIPT_TOKEN,
     Decision,
     DecisionReceipt,
-    _DECISION_RECEIPT_TOKEN,
 )
 
 
@@ -32,22 +32,16 @@ def create_decision_receipt(decision: Decision) -> DecisionReceipt:
         policy_bundle_digest=evidence.policy_bundle_digest,
         validated_authority_digest=validated_authority_digest,
         delegation_chain_digest=(
-            applicability.chain_digest
-            if applicability is not None
-            else None
+            applicability.chain_digest if applicability is not None else None
         ),
         authorization_state_digest=(
-            applicability.state_digest
-            if applicability is not None
-            else None
+            applicability.state_digest if applicability is not None else None
         ),
         subject_principal_binding_evidence_digest=(
             sha256_digest(binding) if binding is not None else None
         ),
         authority_applicability_evidence_digest=(
-            sha256_digest(applicability)
-            if applicability is not None
-            else None
+            sha256_digest(applicability) if applicability is not None else None
         ),
         decision_digest=sha256_digest(decision),
         outcome=decision.outcome,

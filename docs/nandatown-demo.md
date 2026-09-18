@@ -63,39 +63,50 @@ Finance Agent supports a fresh replay test. G1 remains revoked.
 
 The scenario does not execute a protected business operation.
 
-## Test-Only Keys
+## TEST-ONLY keys — never reuse operationally
 
 The demo's Ed25519 seeds are intentionally public and deterministic. They are
 marked `TEST-ONLY / PUBLIC DEMO MATERIAL` in source. They must never be reused
 for production signing or trust. Private material is not emitted into the trace
 or placed in canonical NEST records.
 
-## Install
+## Fresh-environment reviewer path
 
-From the NEST AuthZ checkout, with Nanda Town in the adjacent directory:
+Clone or place the current Nanda Town checkout next to NEST AuthZ, then run the
+following from the NEST AuthZ repository root. A dedicated virtual environment
+is required; do not use a shared Anaconda environment.
 
-```text
+```bash
+python -m venv .venv
+# POSIX: source .venv/bin/activate
+# PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install --editable ../nandatown
-python -m pip install --editable ".[nandatown]"
+python -m pip install --editable ".[dev]"
+python -m unittest discover -s tests -v
 ```
 
 Installing only NEST AuthZ remains sufficient for `import nest_authz`; the core
-does not import Nanda Town.
+does not import Nanda Town. The declared `nandatown` extra accepts compatible
+published `0.2.x` releases, but the adjacent editable checkout is the exact
+development path used to verify this integration.
 
 ## Run the Scenario
 
 From the NEST AuthZ repository root:
 
-```text
+```bash
 nandatown run src/nest_authz/integrations/nandatown/delegated_authority.yaml --out .demo-runs --seed 42
 ```
 
 Nanda Town automatically runs the registered
 `nest_authz_delegated_authority` validator and writes its standard evidence
-bundle. To run all integration tests and all core tests:
+bundle. A passing run reports the scenario verdict as `passed`; the six NEST
+stages listed below must each be `passed` rather than merely absent. To run the
+focused integration suite:
 
-```text
-python -m unittest discover -s tests -v
+```bash
+python -m unittest discover -s tests -p "test_nandatown_integration.py" -v
 ```
 
 The integration end-to-end test invokes the real `run_lab()` path, loads the
@@ -113,10 +124,24 @@ Open the generated `events.jsonl` and filter event kinds beginning with
 - `nest_execution_reservation`
 - `nest_request_admitted`
 
-For example, PowerShell can select the integration events with:
+For example, PowerShell can locate the newest evidence bundle and select the
+integration events with:
 
-```text
-Get-Content .demo-runs/<run-id>/events.jsonl | Select-String '"kind":"nest_'
+```powershell
+$run = Get-ChildItem .demo-runs -Directory |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+Get-Content (Join-Path $run.FullName events.jsonl) |
+  Select-String '"kind":"nest_'
+Get-Content (Join-Path $run.FullName result.json)
+```
+
+On POSIX shells:
+
+```bash
+run="$(ls -dt .demo-runs/*/ | head -1)"
+grep '"kind":"nest_' "${run}/events.jsonl"
+cat "${run}/result.json"
 ```
 
 The validator stages in `result.json` are:
@@ -131,6 +156,28 @@ The validator stages in `result.json` are:
 Each adversarial stage requires evidence that the attempt occurred. Removing an
 attempt produces insufficient evidence; changing a denial into unsafe success
 produces a failed stage.
+
+## Concise expected evidence
+
+Field order in JSON is not significant. The trace should contain facts
+equivalent to:
+
+```text
+operation:subagent-700   nest_authorization_decided outcome=PERMIT
+operation:subagent-4000  nest_authorization_decided outcome=DENY applicability_status=BOUND_EXCEEDED
+operation:finance-primary nest_approval_authorization requesting_agent=mallory status=PRINCIPAL_NOT_ALLOWED
+operation:finance-primary nest_execution_revalidation authority_status=REVOKED status=DELEGATION_AUTHENTICATION_FAILED
+operation:finance-replay nest_execution_reservation status=NEW_RESERVATION execution_id=<X>
+operation:finance-replay nest_execution_reservation status=EXISTING_RESERVED execution_id=<same X>
+```
+
+The approval path also includes `APPROVAL_REQUIRED` followed by an
+`nest_approval_state` event with `status=APPROVED` for
+`principal:authorized-manager`.
+
+The focused suite above exercises the validators through Nanda Town's real
+`run_lab()` path; the CLI run also executes them and writes their evidence to
+`result.json`.
 
 ## Deterministic Replay
 

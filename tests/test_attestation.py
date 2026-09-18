@@ -1,11 +1,11 @@
 import ast
-from dataclasses import replace
 import importlib
 import inspect
 import os
 import subprocess
 import sys
 import unittest
+from dataclasses import replace
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -15,7 +15,6 @@ from nest_authz import (
     Action,
     ApprovalRequirement,
     ApproverSubjectPrincipalBinding,
-    ArtifactAttestation,
     ArtifactKind,
     ArtifactPurpose,
     ArtifactSignature,
@@ -29,7 +28,6 @@ from nest_authz import (
     ConditionOperator,
     DelegationChain,
     Ed25519PublicKey,
-    ExecutionPermit,
     FieldNamespace,
     FieldReference,
     Policy,
@@ -62,7 +60,6 @@ from nest_authz import (
     verify_artifact,
     verify_policy_bundle,
 )
-
 
 _GOLDEN_MESSAGE_HEX = (
     "4e4553542d415554485a2d4154544553544154494f4e0001"
@@ -1001,13 +998,10 @@ class TrustedPolicyIntegrationTests(unittest.TestCase):
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 imported_roots.update(
-                    alias.name.split(".", maxsplit=1)[0]
-                    for alias in node.names
+                    alias.name.split(".", maxsplit=1)[0] for alias in node.names
                 )
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                imported_roots.add(
-                    (node.module or "").split(".", maxsplit=1)[0]
-                )
+                imported_roots.add((node.module or "").split(".", maxsplit=1)[0])
             elif isinstance(node, ast.Name):
                 names.add(node.id)
 

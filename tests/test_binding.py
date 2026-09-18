@@ -416,13 +416,10 @@ class SubjectAuthorityBindingTests(unittest.TestCase):
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 imported_roots.update(
-                    alias.name.split(".", maxsplit=1)[0]
-                    for alias in node.names
+                    alias.name.split(".", maxsplit=1)[0] for alias in node.names
                 )
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                imported_roots.add(
-                    (node.module or "").split(".", maxsplit=1)[0]
-                )
+                imported_roots.add((node.module or "").split(".", maxsplit=1)[0])
             elif isinstance(node, ast.Name):
                 names.add(node.id)
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from .canonical import sha256_digest
 from .delegation import validate_authority
 from .domain import (
+    _EXECUTION_AUTHORIZATION_RESULT_TOKEN,
+    _EXECUTION_PERMIT_TOKEN,
     ApprovalStatus,
     AuthorityApplicabilityStatus,
     AuthorityValidationStatus,
@@ -20,8 +22,6 @@ from .domain import (
     PolicyBundle,
     SubjectAuthorityBindingStatus,
     SubjectPrincipalBinding,
-    _EXECUTION_AUTHORIZATION_RESULT_TOKEN,
-    _EXECUTION_PERMIT_TOKEN,
 )
 from .evaluator import evaluate
 
@@ -46,17 +46,11 @@ def revalidate_for_execution(
     if type(current_policy_bundle) is not PolicyBundle:
         raise TypeError("current_policy_bundle must be a PolicyBundle")
     if type(current_delegation_chain) is not DelegationChain:
-        raise TypeError(
-            "current_delegation_chain must be a DelegationChain"
-        )
+        raise TypeError("current_delegation_chain must be a DelegationChain")
     if type(current_authorization_state) is not AuthorizationState:
-        raise TypeError(
-            "current_authorization_state must be an AuthorizationState"
-        )
+        raise TypeError("current_authorization_state must be an AuthorizationState")
     if type(current_subject_binding) is not SubjectPrincipalBinding:
-        raise TypeError(
-            "current_subject_binding must be a SubjectPrincipalBinding"
-        )
+        raise TypeError("current_subject_binding must be a SubjectPrincipalBinding")
 
     original_receipt_digest = sha256_digest(original_receipt)
     approved_state_digest = sha256_digest(approved_state)
@@ -99,21 +93,16 @@ def revalidate_for_execution(
         status = ExecutionAuthorizationStatus.HOLDER_BINDING_FAILED
     elif (
         applicability is None
-        or applicability.status
-        is not AuthorityApplicabilityStatus.APPLICABLE
+        or applicability.status is not AuthorityApplicabilityStatus.APPLICABLE
     ):
         status = ExecutionAuthorizationStatus.AUTHORITY_NOT_APPLICABLE
     elif decision.outcome is Outcome.DENY:
         status = ExecutionAuthorizationStatus.POLICY_DENIED
     elif decision.outcome is Outcome.PERMIT:
-        status = (
-            ExecutionAuthorizationStatus.POLICY_REAUTHORIZATION_REQUIRED
-        )
+        status = ExecutionAuthorizationStatus.POLICY_REAUTHORIZATION_REQUIRED
     elif (
-        decision.approval_requirements
-        != original_receipt.approval_requirements
-        or decision.approval_requirements
-        != approved_state.approval_requirements
+        decision.approval_requirements != original_receipt.approval_requirements
+        or decision.approval_requirements != approved_state.approval_requirements
     ):
         status = ExecutionAuthorizationStatus.APPROVAL_REQUIREMENTS_CHANGED
     elif policy_bundle_digest != original_receipt.policy_bundle_digest:

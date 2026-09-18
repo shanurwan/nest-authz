@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from hashlib import sha256
+from typing import Any
 
 from .domain import (
     Action,
@@ -11,20 +12,20 @@ from .domain import (
     ApprovalRequirementState,
     ApprovalRequirementStatus,
     ApprovalStatus,
+    ApproverAuthorizationResult,
+    ApproverAuthorizationStatus,
+    ApproverSubjectPrincipalBinding,
     ArtifactAttestation,
     ArtifactKind,
     ArtifactPurpose,
     ArtifactSignature,
     ArtifactVerificationResult,
     ArtifactVerificationStatus,
-    ApproverAuthorizationResult,
-    ApproverAuthorizationStatus,
-    ApproverSubjectPrincipalBinding,
     AuthenticatedDelegatedAuthority,
-    AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityApplicabilityStatus,
     AuthorityBoundEvaluation,
+    AuthorityContext,
     AuthorityGrant,
     AuthorityScope,
     AuthorityValidationResult,
@@ -37,9 +38,9 @@ from .domain import (
     Decision,
     DecisionEvidence,
     DecisionReceipt,
-    DelegationChain,
     DelegationAuthenticationResult,
     DelegationAuthenticationStatus,
+    DelegationChain,
     Ed25519PublicKey,
     ExecutionAuthorizationResult,
     ExecutionAuthorizationStatus,
@@ -49,27 +50,27 @@ from .domain import (
     ExecutionReservationResult,
     ExecutionReservationStatus,
     ExecutionStatus,
+    FieldNamespace,
+    FieldReference,
     GrantAttestation,
     GrantAttestationSet,
     GrantAuthenticationEvidence,
     Obligation,
     Outcome,
-    FieldNamespace,
-    FieldReference,
+    PendingApproval,
     Policy,
     PolicyBundle,
-    PendingApproval,
     Principal,
     PrincipalKeyBinding,
     PrincipalKeyRegistry,
     Reason,
     RequestContext,
     Resource,
+    RevocationSet,
     Rule,
     RuleEffect,
     RuleEvaluation,
     RuleEvaluationStatus,
-    RevocationSet,
     Sha256Digest,
     SignatureScheme,
     SigningKeyId,
@@ -77,11 +78,11 @@ from .domain import (
     SubjectAuthorityBindingResult,
     SubjectAuthorityBindingStatus,
     SubjectPrincipalBinding,
-    TrustedKey,
     TrustedAuthorityRoots,
     TrustedAuthorizationResult,
     TrustedExecutionAuthorizationResult,
     TrustedExecutionAuthorizationStatus,
+    TrustedKey,
     TrustedPolicyBundle,
     TrustStore,
     VerifiedAuthority,
@@ -186,17 +187,11 @@ def _encode_scalar(value: object) -> bytes:
 
 
 def _encode_scalar_map(values: Iterable[tuple[str, object]]) -> bytes:
-    return _encode_map(
-        (key, _encode_scalar(value))
-        for key, value in values
-    )
+    return _encode_map((key, _encode_scalar(value)) for key, value in values)
 
 
 def _encode_integer_map(values: Iterable[tuple[str, int]]) -> bytes:
-    return _encode_map(
-        (key, _encode_integer(value))
-        for key, value in values
-    )
+    return _encode_map((key, _encode_integer(value)) for key, value in values)
 
 
 def _encode_string_sequence(values: Iterable[str]) -> bytes:
@@ -206,17 +201,21 @@ def _encode_string_sequence(values: Iterable[str]) -> bytes:
 def _encode_condition_status_map(
     values: Iterable[tuple[str, ConditionStatus]],
 ) -> bytes:
-    return _encode_map(
-        (key, _encode_domain(value))
-        for key, value in values
-    )
+    return _encode_map((key, _encode_domain(value)) for key, value in values)
 
 
 def _encode_optional_domain(value: object | None) -> bytes:
     return _encode_null() if value is None else _encode_domain(value)
 
 
-def _encode_domain(value: object) -> bytes:
+def _encode_domain(value: Any) -> bytes:
+    """Encode the closed runtime type allowlist below.
+
+    ``Any`` is intentional at this internal dispatch boundary: exact runtime
+    types, rather than structural typing or subclassing, select each schema.
+    Unsupported values still fail closed at the final branch.
+    """
+
     value_type = type(value)
 
     if value_type is Subject:

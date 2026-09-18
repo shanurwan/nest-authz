@@ -1,65 +1,62 @@
-from dataclasses import fields, is_dataclass
 import unittest
+from dataclasses import fields, is_dataclass
 
 import nest_authz
 from nest_authz import (
     Action,
     ApprovalRequirement,
     ApprovalRequirementState,
+    ApproverAuthorizationResult,
+    ApproverSubjectPrincipalBinding,
     ArtifactAttestation,
     ArtifactSignature,
     ArtifactVerificationResult,
-    ApproverAuthorizationResult,
-    ApproverSubjectPrincipalBinding,
     AuthenticatedDelegatedAuthority,
-    AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityBoundEvaluation,
+    AuthorityContext,
     AuthorityGrant,
     AuthorityScope,
     AuthorityValidationResult,
     AuthorizationRequest,
     AuthorizationState,
     Condition,
-    ConditionOperator,
     ConditionStatus,
     Decision,
     DecisionEvidence,
     DecisionReceipt,
-    DelegationChain,
     DelegationAuthenticationResult,
+    DelegationChain,
     Ed25519PublicKey,
     ExecutionAuthorizationResult,
     ExecutionId,
     ExecutionPermit,
     ExecutionRecord,
     ExecutionReservationResult,
+    FieldReference,
     GrantAttestation,
     GrantAttestationSet,
     GrantAuthenticationEvidence,
     Obligation,
     Outcome,
-    FieldNamespace,
-    FieldReference,
+    PendingApproval,
     Policy,
     PolicyBundle,
-    PendingApproval,
     Principal,
     PrincipalKeyBinding,
     PrincipalKeyRegistry,
     Reason,
     RequestContext,
     Resource,
+    RevocationSet,
     Rule,
     RuleEffect,
     RuleEvaluation,
     RuleEvaluationStatus,
-    RevocationSet,
     Sha256Digest,
     SigningKeyId,
     Subject,
     SubjectAuthorityBindingResult,
-    SubjectAuthorityBindingStatus,
     SubjectPrincipalBinding,
     TrustedAuthorityRoots,
     TrustedAuthorizationResult,
@@ -73,7 +70,6 @@ from nest_authz import (
     sha256_digest,
     validate_authority,
 )
-
 
 _PUBLIC_DATACLASS_DOMAIN_RECORDS = (
     Subject,
@@ -210,7 +206,9 @@ class DomainInvariantTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "must not be blank"):
                     Action(value)
 
-    def test_request_can_represent_absent_authority_context_without_authentication(self):
+    def test_request_can_represent_absent_authority_context_without_authentication(
+        self,
+    ):
         request = AuthorizationRequest(
             subject=Subject("agent:7"),
             action=Action("message.send"),

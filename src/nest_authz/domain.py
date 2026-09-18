@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from enum import Enum
-from typing import TypeAlias, TypeVar
+from typing import Protocol, TypeAlias, TypeVar, cast
 
 
 class ConditionStatus(str, Enum):
@@ -193,14 +194,10 @@ class DelegationAuthenticationStatus(Enum):
     AUTHENTICATED = "AUTHENTICATED"
     MISSING_ATTESTATION = "MISSING_ATTESTATION"
     ATTESTATION_INVALID = "ATTESTATION_INVALID"
-    SIGNER_KEY_NOT_BOUND_TO_GRANTOR = (
-        "SIGNER_KEY_NOT_BOUND_TO_GRANTOR"
-    )
+    SIGNER_KEY_NOT_BOUND_TO_GRANTOR = "SIGNER_KEY_NOT_BOUND_TO_GRANTOR"
     UNTRUSTED_ROOT_PRINCIPAL = "UNTRUSTED_ROOT_PRINCIPAL"
     UNKNOWN_SIGNING_KEY = "UNKNOWN_SIGNING_KEY"
-    KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT = (
-        "KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT"
-    )
+    KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT = "KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT"
     GRANT_ARTIFACT_MISMATCH = "GRANT_ARTIFACT_MISMATCH"
     STRUCTURAL_AUTHORITY_INVALID = "STRUCTURAL_AUTHORITY_INVALID"
     UNKNOWN_GRANT_ATTESTATION = "UNKNOWN_GRANT_ATTESTATION"
@@ -210,9 +207,7 @@ class TrustedExecutionAuthorizationStatus(Enum):
     """The result of trusted execution-time orchestration."""
 
     AUTHORIZED = "AUTHORIZED"
-    DELEGATION_AUTHENTICATION_FAILED = (
-        "DELEGATION_AUTHENTICATION_FAILED"
-    )
+    DELEGATION_AUTHENTICATION_FAILED = "DELEGATION_AUTHENTICATION_FAILED"
     EXECUTION_REVALIDATION_FAILED = "EXECUTION_REVALIDATION_FAILED"
 
 
@@ -268,9 +263,7 @@ def _canonical_fields(value: object, field_name: str) -> _Fields:
         key = _non_blank(item[0], f"{field_name} key")
         scalar = item[1]
         if scalar is not None and type(scalar) not in (str, int, bool):
-            raise TypeError(
-                f"{field_name} values must be str, int, bool, or None"
-            )
+            raise TypeError(f"{field_name} values must be str, int, bool, or None")
         if type(scalar) is str:
             _valid_string(scalar, f"{field_name} value")
         if key in seen:
@@ -300,9 +293,7 @@ def _canonical_integer_bounds(
         seen.add(name)
         result.append((name, bound))
 
-    return tuple(
-        sorted(result, key=lambda pair: pair[0].encode("utf-8"))
-    )
+    return tuple(sorted(result, key=lambda pair: pair[0].encode("utf-8")))
 
 
 def _typed_fields(fields: _Fields) -> _TypedFields:
@@ -312,10 +303,7 @@ def _typed_fields(fields: _Fields) -> _TypedFields:
         bool: "boolean",
         type(None): "null",
     }
-    return tuple(
-        (key, type_names[type(value)], value)
-        for key, value in fields
-    )
+    return tuple((key, type_names[type(value)], value) for key, value in fields)
 
 
 def _canonical_condition_results(value: object) -> _ConditionResults:
@@ -340,14 +328,22 @@ def _canonical_condition_results(value: object) -> _ConditionResults:
 _T = TypeVar("_T")
 
 
-def _typed_tuple(value: object, expected_type: type[_T], field_name: str) -> tuple[_T, ...]:
+class _Identified(Protocol):
+    @property
+    def identifier(self) -> str: ...
+
+
+_IdentifiedT = TypeVar("_IdentifiedT", bound=_Identified)
+
+
+def _typed_tuple(
+    value: object, expected_type: type[_T], field_name: str
+) -> tuple[_T, ...]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
         raise TypeError(f"{field_name} must be an iterable")
     result = tuple(value)
     if not all(type(item) is expected_type for item in result):
-        raise TypeError(
-            f"every {field_name} entry must be {expected_type.__name__}"
-        )
+        raise TypeError(f"every {field_name} entry must be {expected_type.__name__}")
     return result
 
 
@@ -386,7 +382,7 @@ class Sha256Digest:
     """A validated SHA-256 content digest."""
 
     value: bytes
-    algorithm: str = field(init=False, default="sha256")
+    algorithm: str = dataclass_field(init=False, default="sha256")
 
     def __post_init__(self) -> None:
         if type(self.value) is not bytes:
@@ -423,9 +419,7 @@ def _fixed_bytes(value: object, length: int, field_name: str) -> bytes:
     if type(value) is not bytes:
         raise TypeError(f"{field_name} must be bytes")
     if len(value) != length:
-        raise ValueError(
-            f"{field_name} must contain exactly {length} bytes"
-        )
+        raise ValueError(f"{field_name} must contain exactly {length} bytes")
     return value
 
 
@@ -483,9 +477,7 @@ def _canonical_artifact_purposes(
         raise ValueError("trusted keys must allow at least one purpose")
     if len(set(purposes)) != len(purposes):
         raise ValueError("allowed_purposes must not contain duplicates")
-    return tuple(
-        sorted(purposes, key=lambda purpose: purpose.value.encode("utf-8"))
-    )
+    return tuple(sorted(purposes, key=lambda purpose: purpose.value.encode("utf-8")))
 
 
 @dataclass(frozen=True, slots=True)
@@ -530,8 +522,8 @@ class TrustStore:
             tuple(
                 sorted(
                     keys,
-                    key=lambda trusted_key: (
-                        trusted_key.key_id.identifier.encode("utf-8")
+                    key=lambda trusted_key: trusted_key.key_id.identifier.encode(
+                        "utf-8"
                     ),
                 )
             ),
@@ -606,9 +598,7 @@ class ArtifactVerificationResult:
         if type(expected_purpose) is not ArtifactPurpose:
             raise TypeError("expected_purpose must be an ArtifactPurpose")
         if type(expected_artifact_kind) is not ArtifactKind:
-            raise TypeError(
-                "expected_artifact_kind must be an ArtifactKind"
-            )
+            raise TypeError("expected_artifact_kind must be an ArtifactKind")
 
         if status is ArtifactVerificationStatus.VERIFIED:
             if artifact_digest != attestation.artifact_digest:
@@ -627,9 +617,7 @@ class ArtifactVerificationResult:
                 raise ValueError("PURPOSE_MISMATCH requires different purposes")
         elif status is ArtifactVerificationStatus.ARTIFACT_KIND_MISMATCH:
             if expected_artifact_kind is attestation.artifact_kind:
-                raise ValueError(
-                    "ARTIFACT_KIND_MISMATCH requires different kinds"
-                )
+                raise ValueError("ARTIFACT_KIND_MISMATCH requires different kinds")
 
         result = object.__new__(cls)
         object.__setattr__(result, "status", status)
@@ -703,9 +691,7 @@ class PrincipalKeyRegistry:
             tuple(
                 sorted(
                     bindings,
-                    key=lambda binding: (
-                        binding.principal.identifier.encode("utf-8")
-                    ),
+                    key=lambda binding: binding.principal.identifier.encode("utf-8"),
                 )
             ),
         )
@@ -726,9 +712,7 @@ class TrustedAuthorityRoots:
         identifiers: set[str] = set()
         for principal in principals:
             if principal.identifier in identifiers:
-                raise ValueError(
-                    "trusted authority roots must not contain duplicates"
-                )
+                raise ValueError("trusted authority roots must not contain duplicates")
             identifiers.add(principal.identifier)
         object.__setattr__(
             self,
@@ -736,9 +720,7 @@ class TrustedAuthorityRoots:
             tuple(
                 sorted(
                     principals,
-                    key=lambda principal: principal.identifier.encode(
-                        "utf-8"
-                    ),
+                    key=lambda principal: principal.identifier.encode("utf-8"),
                 )
             ),
         )
@@ -915,7 +897,7 @@ class AuthorizationState:
     """All deterministic external state consumed by authority validation."""
 
     logical_time: int
-    revocations: RevocationSet = field(default_factory=RevocationSet)
+    revocations: RevocationSet = dataclass_field(default_factory=RevocationSet)
 
     def __post_init__(self) -> None:
         if type(self.logical_time) is not int:
@@ -1015,7 +997,9 @@ class AuthorityValidationResult:
             if self.offending_grant_id is None:
                 raise ValueError("invalid authority results require an offending grant")
             if self.verified_authority is not None:
-                raise ValueError("invalid authority results cannot carry verified authority")
+                raise ValueError(
+                    "invalid authority results cannot carry verified authority"
+                )
 
 
 def _delegation_status_for_verification(
@@ -1026,10 +1010,7 @@ def _delegation_status_for_verification(
     if status is ArtifactVerificationStatus.UNKNOWN_KEY:
         return DelegationAuthenticationStatus.UNKNOWN_SIGNING_KEY
     if status is ArtifactVerificationStatus.KEY_NOT_TRUSTED_FOR_PURPOSE:
-        return (
-            DelegationAuthenticationStatus
-            .KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT
-        )
+        return DelegationAuthenticationStatus.KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT
     if status in (
         ArtifactVerificationStatus.DIGEST_MISMATCH,
         ArtifactVerificationStatus.ARTIFACT_KIND_MISMATCH,
@@ -1063,12 +1044,11 @@ class GrantAuthenticationEvidence:
             raise TypeError("grantor must be a Principal")
         if type(self.is_root) is not bool:
             raise TypeError("is_root must be a boolean")
-        if self.root_principal_trusted is not None and type(
-            self.root_principal_trusted
-        ) is not bool:
-            raise TypeError(
-                "root_principal_trusted must be a boolean or None"
-            )
+        if (
+            self.root_principal_trusted is not None
+            and type(self.root_principal_trusted) is not bool
+        ):
+            raise TypeError("root_principal_trusted must be a boolean or None")
         if self.is_root != (self.root_principal_trusted is not None):
             raise ValueError(
                 "root trust evidence must be present exactly for root grants"
@@ -1091,16 +1071,12 @@ class GrantAuthenticationEvidence:
                 "verification must be an ArtifactVerificationResult or None"
             )
         if type(self.status) is not DelegationAuthenticationStatus:
-            raise TypeError(
-                "status must be a DelegationAuthenticationStatus"
-            )
+            raise TypeError("status must be a DelegationAuthenticationStatus")
         if self.status in (
             DelegationAuthenticationStatus.STRUCTURAL_AUTHORITY_INVALID,
             DelegationAuthenticationStatus.UNKNOWN_GRANT_ATTESTATION,
         ):
-            raise ValueError(
-                "aggregate-only status is invalid for per-grant evidence"
-            )
+            raise ValueError("aggregate-only status is invalid for per-grant evidence")
 
         if self.status is DelegationAuthenticationStatus.MISSING_ATTESTATION:
             if any(
@@ -1117,37 +1093,26 @@ class GrantAuthenticationEvidence:
             return
 
         if self.signing_key_id is None or self.verification is None:
-            raise ValueError(
-                "attested grant evidence requires signer and verification"
-            )
+            raise ValueError("attested grant evidence requires signer and verification")
         if self.signing_key_id != self.verification.attestation.key_id:
-            raise ValueError(
-                "signing key must equal the verification attestation key"
-            )
+            raise ValueError("signing key must equal the verification attestation key")
 
         verification_failure = _delegation_status_for_verification(
             self.verification.status
         )
         if verification_failure is not None:
             if self.status is not verification_failure:
-                raise ValueError(
-                    "grant status does not match artifact verification"
-                )
+                raise ValueError("grant status does not match artifact verification")
             return
 
         if self.bound_principal != self.grantor:
-            expected = (
-                DelegationAuthenticationStatus
-                .SIGNER_KEY_NOT_BOUND_TO_GRANTOR
-            )
+            expected = DelegationAuthenticationStatus.SIGNER_KEY_NOT_BOUND_TO_GRANTOR
         elif self.is_root and not self.root_principal_trusted:
             expected = DelegationAuthenticationStatus.UNTRUSTED_ROOT_PRINCIPAL
         else:
             expected = DelegationAuthenticationStatus.AUTHENTICATED
         if self.status is not expected:
-            raise ValueError(
-                "grant authentication status does not match its evidence"
-            )
+            raise ValueError("grant authentication status does not match its evidence")
 
 
 _AUTHENTICATED_DELEGATED_AUTHORITY_TOKEN = object()
@@ -1190,9 +1155,7 @@ class AuthenticatedDelegatedAuthority:
                 "delegation authentication"
             )
         if type(verified_authority) is not VerifiedAuthority:
-            raise TypeError(
-                "verified_authority must be a VerifiedAuthority"
-            )
+            raise TypeError("verified_authority must be a VerifiedAuthority")
         for field_name, digest in (
             ("authority_validation_digest", authority_validation_digest),
             ("grant_attestations_digest", grant_attestations_digest),
@@ -1289,17 +1252,12 @@ class DelegationAuthenticationResult:
     ) -> DelegationAuthenticationResult:
         if _token is not _DELEGATION_AUTHENTICATION_RESULT_TOKEN:
             raise TypeError(
-                "DelegationAuthenticationResult requires delegation "
-                "authentication"
+                "DelegationAuthenticationResult requires delegation authentication"
             )
         if type(status) is not DelegationAuthenticationStatus:
-            raise TypeError(
-                "status must be a DelegationAuthenticationStatus"
-            )
+            raise TypeError("status must be a DelegationAuthenticationStatus")
         if type(authority_validation) is not AuthorityValidationResult:
-            raise TypeError(
-                "authority_validation must be an AuthorityValidationResult"
-            )
+            raise TypeError("authority_validation must be an AuthorityValidationResult")
         for field_name, digest in (
             ("grant_attestations_digest", grant_attestations_digest),
             ("trust_store_digest", trust_store_digest),
@@ -1323,41 +1281,38 @@ class DelegationAuthenticationResult:
             _non_blank(offending_grant_id, "offending grant identifier")
         if (
             authenticated_authority is not None
-            and type(authenticated_authority)
-            is not AuthenticatedDelegatedAuthority
+            and type(authenticated_authority) is not AuthenticatedDelegatedAuthority
         ):
             raise TypeError(
                 "authenticated_authority must be an "
                 "AuthenticatedDelegatedAuthority or None"
             )
 
-        authenticated = (
-            status is DelegationAuthenticationStatus.AUTHENTICATED
-        )
+        authenticated = status is DelegationAuthenticationStatus.AUTHENTICATED
         if authenticated != (authenticated_authority is not None):
             raise ValueError(
-                "authenticated authority must be present exactly for "
-                "AUTHENTICATED"
+                "authenticated authority must be present exactly for AUTHENTICATED"
             )
         if authenticated:
+            authenticated_value = cast(
+                AuthenticatedDelegatedAuthority,
+                authenticated_authority,
+            )
             if authority_validation.status is not AuthorityValidationStatus.VALID:
-                raise ValueError(
-                    "authenticated delegation requires VALID authority"
-                )
+                raise ValueError("authenticated delegation requires VALID authority")
             if offending_grant_id is not None:
                 raise ValueError(
                     "authenticated delegation cannot name an offending grant"
                 )
             if not evidence or any(
-                item.status
-                is not DelegationAuthenticationStatus.AUTHENTICATED
+                item.status is not DelegationAuthenticationStatus.AUTHENTICATED
                 for item in evidence
             ):
                 raise ValueError(
                     "authenticated result requires authenticated grant evidence"
                 )
             if (
-                authenticated_authority.verified_authority
+                authenticated_value.verified_authority
                 != authority_validation.verified_authority
             ):
                 raise ValueError(
@@ -1365,19 +1320,19 @@ class DelegationAuthenticationResult:
                 )
             for authority_digest, result_digest in (
                 (
-                    authenticated_authority.grant_attestations_digest,
+                    authenticated_value.grant_attestations_digest,
                     grant_attestations_digest,
                 ),
                 (
-                    authenticated_authority.trust_store_digest,
+                    authenticated_value.trust_store_digest,
                     trust_store_digest,
                 ),
                 (
-                    authenticated_authority.principal_key_registry_digest,
+                    authenticated_value.principal_key_registry_digest,
                     principal_key_registry_digest,
                 ),
                 (
-                    authenticated_authority.trusted_authority_roots_digest,
+                    authenticated_value.trusted_authority_roots_digest,
                     trusted_authority_roots_digest,
                 ),
             ):
@@ -1386,31 +1341,24 @@ class DelegationAuthenticationResult:
                         "authenticated authority trust-input digests must "
                         "match the result"
                     )
-            if authenticated_authority.grant_evidence != evidence:
-                raise ValueError(
-                    "authenticated authority must preserve grant evidence"
-                )
+            if authenticated_value.grant_evidence != evidence:
+                raise ValueError("authenticated authority must preserve grant evidence")
         else:
             if offending_grant_id is None:
                 raise ValueError(
-                    "failed delegation authentication requires an offending "
-                    "grant"
+                    "failed delegation authentication requires an offending grant"
                 )
             if (
-                status
-                is DelegationAuthenticationStatus.STRUCTURAL_AUTHORITY_INVALID
-                and authority_validation.status
-                is AuthorityValidationStatus.VALID
+                status is DelegationAuthenticationStatus.STRUCTURAL_AUTHORITY_INVALID
+                and authority_validation.status is AuthorityValidationStatus.VALID
             ):
                 raise ValueError(
                     "structural failure requires invalid authority validation"
                 )
             if (
                 status
-                is not DelegationAuthenticationStatus
-                .STRUCTURAL_AUTHORITY_INVALID
-                and authority_validation.status
-                is not AuthorityValidationStatus.VALID
+                is not DelegationAuthenticationStatus.STRUCTURAL_AUTHORITY_INVALID
+                and authority_validation.status is not AuthorityValidationStatus.VALID
             ):
                 raise ValueError(
                     "cryptographic failure requires structurally valid authority"
@@ -1458,8 +1406,8 @@ class Condition:
     identifier: str
     field: FieldReference
     operator: ConditionOperator
-    value: _Scalar = field(default=None, compare=False, hash=False)
-    _typed_value: _TypedScalar = field(init=False, repr=False)
+    value: _Scalar = dataclass_field(default=None, compare=False, hash=False)
+    _typed_value: _TypedScalar = dataclass_field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _non_blank(self.identifier, "condition identifier")
@@ -1536,9 +1484,9 @@ def _canonical_conditions(value: object) -> tuple[Condition, ...]:
 
 def _canonical_identified_records(
     value: object,
-    expected_type: type[_T],
+    expected_type: type[_IdentifiedT],
     field_name: str,
-) -> tuple[_T, ...]:
+) -> tuple[_IdentifiedT, ...]:
     records = _typed_tuple(value, expected_type, field_name)
     seen: set[str] = set()
 
@@ -1548,17 +1496,15 @@ def _canonical_identified_records(
             raise ValueError(f"{field_name} must not contain duplicate identifiers")
         seen.add(identifier)
 
-    return tuple(
-        sorted(records, key=lambda record: record.identifier.encode("utf-8"))
-    )
+    return tuple(sorted(records, key=lambda record: record.identifier.encode("utf-8")))
 
 
 @dataclass(frozen=True, slots=True)
 class RequestContext:
     """Deterministic, explicitly supplied facts about a request."""
 
-    attributes: _Fields = field(default=(), compare=False, hash=False)
-    _typed_attributes: _TypedFields = field(init=False, repr=False)
+    attributes: _Fields = dataclass_field(default=(), compare=False, hash=False)
+    _typed_attributes: _TypedFields = dataclass_field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         attributes = _canonical_fields(self.attributes, "context attributes")
@@ -1575,8 +1521,8 @@ class AuthorityContext:
     """Policy-visible authority-related context, not delegated authority."""
 
     identifier: str
-    attributes: _Fields = field(default=(), compare=False, hash=False)
-    _typed_attributes: _TypedFields = field(init=False, repr=False)
+    attributes: _Fields = dataclass_field(default=(), compare=False, hash=False)
+    _typed_attributes: _TypedFields = dataclass_field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _non_blank(self.identifier, "authority-context identifier")
@@ -1615,9 +1561,7 @@ class AuthorizationRequest:
             self.authority_context is not None
             and type(self.authority_context) is not AuthorityContext
         ):
-            raise TypeError(
-                "authority_context must be an AuthorityContext or None"
-            )
+            raise TypeError("authority_context must be an AuthorityContext or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1634,9 +1578,7 @@ class SubjectAuthorityBindingResult:
 
     def __post_init__(self) -> None:
         if type(self.status) is not SubjectAuthorityBindingStatus:
-            raise TypeError(
-                "status must be a SubjectAuthorityBindingStatus"
-            )
+            raise TypeError("status must be a SubjectAuthorityBindingStatus")
         if type(self.request_digest) is not Sha256Digest:
             raise TypeError("request_digest must be a Sha256Digest")
         if type(self.authority_digest) is not Sha256Digest:
@@ -1669,9 +1611,9 @@ class AuthorityBoundEvaluation:
     name: str
     upper_bound: int
     present: bool
-    supplied_value: _Scalar = field(compare=False, hash=False)
+    supplied_value: _Scalar = dataclass_field(compare=False, hash=False)
     status: AuthorityApplicabilityStatus
-    _typed_supplied_value: _TypedScalar = field(init=False, repr=False)
+    _typed_supplied_value: _TypedScalar = dataclass_field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _non_blank(self.name, "authority bound name")
@@ -1784,9 +1726,7 @@ class AuthorityApplicabilityResult:
             raise TypeError("resource_matches must be a boolean")
         if self.action_matches != (self.expected_action == self.request_action):
             raise ValueError("action_matches does not match the compared Actions")
-        if self.resource_matches != (
-            self.expected_resource == self.request_resource
-        ):
+        if self.resource_matches != (self.expected_resource == self.request_resource):
             raise ValueError("resource_matches does not match the compared Resources")
 
         evaluations = _canonical_bound_evaluations(self.bound_evaluations)
@@ -1807,9 +1747,7 @@ class AuthorityApplicabilityResult:
             expected_status = AuthorityApplicabilityStatus.APPLICABLE
 
         if self.status is not expected_status:
-            raise ValueError(
-                "applicability status does not match comparison evidence"
-            )
+            raise ValueError("applicability status does not match comparison evidence")
 
 
 class Outcome(str, Enum):
@@ -1837,8 +1775,8 @@ class Obligation:
     """A requirement imposed on the enforcement point."""
 
     code: str
-    parameters: _Fields = field(default=(), compare=False, hash=False)
-    _typed_parameters: _TypedFields = field(init=False, repr=False)
+    parameters: _Fields = dataclass_field(default=(), compare=False, hash=False)
+    _typed_parameters: _TypedFields = dataclass_field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _non_blank(self.code, "obligation code")
@@ -1857,8 +1795,8 @@ class ApprovalRequirement:
 
     code: str
     allowed_principals: tuple[Principal, ...]
-    parameters: _Fields = field(default=(), compare=False, hash=False)
-    _typed_parameters: _TypedFields = field(init=False, repr=False)
+    parameters: _Fields = dataclass_field(default=(), compare=False, hash=False)
+    _typed_parameters: _TypedFields = dataclass_field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _non_blank(self.code, "approval requirement code")
@@ -1868,15 +1806,11 @@ class ApprovalRequirement:
             "allowed_principals",
         )
         if not principals:
-            raise ValueError(
-                "approval requirements must allow at least one Principal"
-            )
+            raise ValueError("approval requirements must allow at least one Principal")
         identifiers: set[str] = set()
         for principal in principals:
             if principal.identifier in identifiers:
-                raise ValueError(
-                    "allowed_principals must not contain duplicates"
-                )
+                raise ValueError("allowed_principals must not contain duplicates")
             identifiers.add(principal.identifier)
         object.__setattr__(
             self,
@@ -1945,29 +1879,18 @@ class ApproverAuthorizationResult:
         if type(self.actor) is not Subject:
             raise TypeError("actor must be a Subject")
         if type(self.binding) is not ApproverSubjectPrincipalBinding:
-            raise TypeError(
-                "binding must be an ApproverSubjectPrincipalBinding"
-            )
+            raise TypeError("binding must be an ApproverSubjectPrincipalBinding")
         if type(self.required_requirement) is not ApprovalRequirement:
-            raise TypeError(
-                "required_requirement must be an ApprovalRequirement"
-            )
+            raise TypeError("required_requirement must be an ApprovalRequirement")
         if type(self.attempted_requirement) is not ApprovalRequirement:
-            raise TypeError(
-                "attempted_requirement must be an ApprovalRequirement"
-            )
+            raise TypeError("attempted_requirement must be an ApprovalRequirement")
 
         if self.required_requirement != self.attempted_requirement:
             expected_status = ApproverAuthorizationStatus.REQUIREMENT_MISMATCH
         elif self.actor != self.binding.subject:
             expected_status = ApproverAuthorizationStatus.SUBJECT_MISMATCH
-        elif (
-            self.binding.principal
-            not in self.required_requirement.allowed_principals
-        ):
-            expected_status = (
-                ApproverAuthorizationStatus.PRINCIPAL_NOT_ALLOWED
-            )
+        elif self.binding.principal not in self.required_requirement.allowed_principals:
+            expected_status = ApproverAuthorizationStatus.PRINCIPAL_NOT_ALLOWED
         else:
             expected_status = ApproverAuthorizationStatus.AUTHORIZED
 
@@ -2011,21 +1934,14 @@ class ApprovalRequirementState:
                 "rejected requirements"
             )
         if self.authorization is not None:
-            if (
-                self.authorization.status
-                is not ApproverAuthorizationStatus.AUTHORIZED
-            ):
-                raise ValueError(
-                    "requirement state authorization must be AUTHORIZED"
-                )
+            if self.authorization.status is not ApproverAuthorizationStatus.AUTHORIZED:
+                raise ValueError("requirement state authorization must be AUTHORIZED")
             if (
                 self.authorization.required_requirement != self.requirement
-                or self.authorization.attempted_requirement
-                != self.requirement
+                or self.authorization.attempted_requirement != self.requirement
             ):
                 raise ValueError(
-                    "requirement state authorization must bind the exact "
-                    "requirement"
+                    "requirement state authorization must bind the exact requirement"
                 )
 
     @property
@@ -2057,9 +1973,7 @@ def _canonical_approval_requirement_states(
     return tuple(
         sorted(
             states,
-            key=lambda state: _approval_requirement_sort_key(
-                state.requirement
-            ),
+            key=lambda state: _approval_requirement_sort_key(state.requirement),
         )
     )
 
@@ -2088,9 +2002,7 @@ class Rule:
             "obligations",
             _typed_tuple(self.obligations, Obligation, "obligations"),
         )
-        requirements = _canonical_approval_requirements(
-            self.approval_requirements
-        )
+        requirements = _canonical_approval_requirements(self.approval_requirements)
         object.__setattr__(self, "approval_requirements", requirements)
 
         approval_is_required = self.effect is RuleEffect.APPROVAL_REQUIRED
@@ -2126,7 +2038,10 @@ class PolicyBundle:
     """A canonically ordered collection of policies using deny-overrides."""
 
     policies: tuple[Policy, ...] = ()
-    combining_algorithm: str = field(init=False, default="DENY_OVERRIDES")
+    combining_algorithm: str = dataclass_field(
+        init=False,
+        default="DENY_OVERRIDES",
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -2148,9 +2063,7 @@ class TrustedPolicyBundle:
     verification: ArtifactVerificationResult
 
     def __init__(self, *args: object, **kwargs: object) -> None:
-        raise TypeError(
-            "TrustedPolicyBundle can only be created by verification"
-        )
+        raise TypeError("TrustedPolicyBundle can only be created by verification")
 
     @classmethod
     def _from_verification(
@@ -2162,17 +2075,13 @@ class TrustedPolicyBundle:
         _token: object,
     ) -> TrustedPolicyBundle:
         if _token is not _TRUSTED_POLICY_BUNDLE_TOKEN:
-            raise TypeError(
-                "TrustedPolicyBundle requires successful verification"
-            )
+            raise TypeError("TrustedPolicyBundle requires successful verification")
         if type(bundle) is not PolicyBundle:
             raise TypeError("bundle must be a PolicyBundle")
         if type(attestation) is not ArtifactAttestation:
             raise TypeError("attestation must be an ArtifactAttestation")
         if type(verification) is not ArtifactVerificationResult:
-            raise TypeError(
-                "verification must be an ArtifactVerificationResult"
-            )
+            raise TypeError("verification must be an ArtifactVerificationResult")
         if verification.status is not ArtifactVerificationStatus.VERIFIED:
             raise ValueError("trusted policy requires VERIFIED evidence")
         if verification.attestation != attestation:
@@ -2181,10 +2090,7 @@ class TrustedPolicyBundle:
             )
         if verification.expected_purpose is not ArtifactPurpose.POLICY_BUNDLE:
             raise ValueError("trusted policy requires POLICY_BUNDLE purpose")
-        if (
-            verification.expected_artifact_kind
-            is not ArtifactKind.POLICY_BUNDLE
-        ):
+        if verification.expected_artifact_kind is not ArtifactKind.POLICY_BUNDLE:
             raise ValueError("trusted policy requires POLICY_BUNDLE kind")
 
         result = object.__new__(cls)
@@ -2216,8 +2122,7 @@ class RuleEvaluation:
         if not condition_results:
             raise ValueError("a rule evaluation must contain condition results")
         if any(
-            result is ConditionStatus.NOT_EVALUATED
-            for _, result in condition_results
+            result is ConditionStatus.NOT_EVALUATED for _, result in condition_results
         ):
             raise ValueError(
                 "NOT_EVALUATED is not valid in a version-1 rule evaluation"
@@ -2227,8 +2132,7 @@ class RuleEvaluation:
         if ConditionStatus.UNSATISFIED in results:
             expected_status = RuleEvaluationStatus.NOT_MATCHED
         elif (
-            ConditionStatus.MISSING_INPUT in results
-            or ConditionStatus.ERROR in results
+            ConditionStatus.MISSING_INPUT in results or ConditionStatus.ERROR in results
         ):
             expected_status = RuleEvaluationStatus.INDETERMINATE
         else:
@@ -2281,8 +2185,7 @@ class DecisionEvidence:
             raise TypeError("request_digest must be a Sha256Digest")
         if (
             self.authority_applicability is not None
-            and type(self.authority_applicability)
-            is not AuthorityApplicabilityResult
+            and type(self.authority_applicability) is not AuthorityApplicabilityResult
         ):
             raise TypeError(
                 "authority_applicability must be an "
@@ -2290,8 +2193,7 @@ class DecisionEvidence:
             )
         if (
             self.authority_applicability is not None
-            and self.authority_applicability.request_digest
-            != self.request_digest
+            and self.authority_applicability.request_digest != self.request_digest
         ):
             raise ValueError(
                 "authority applicability must bind the evidence request digest"
@@ -2307,8 +2209,7 @@ class DecisionEvidence:
             )
         if (
             self.subject_authority_binding is not None
-            and self.subject_authority_binding.request_digest
-            != self.request_digest
+            and self.subject_authority_binding.request_digest != self.request_digest
         ):
             raise ValueError(
                 "subject-authority binding must bind the evidence request digest"
@@ -2460,9 +2361,7 @@ class Decision:
             "obligations",
             _typed_tuple(self.obligations, Obligation, "obligations"),
         )
-        requirements = _canonical_approval_requirements(
-            self.approval_requirements
-        )
+        requirements = _canonical_approval_requirements(self.approval_requirements)
         object.__setattr__(self, "approval_requirements", requirements)
 
         approval_is_required = self.outcome is Outcome.APPROVAL_REQUIRED
@@ -2486,8 +2385,7 @@ class Decision:
             applicability = self.evidence.authority_applicability
             if (
                 applicability is None
-                or applicability.status
-                is not AuthorityApplicabilityStatus.APPLICABLE
+                or applicability.status is not AuthorityApplicabilityStatus.APPLICABLE
             ):
                 raise ValueError(
                     "non-deny decisions require applicable validated authority"
@@ -2510,8 +2408,7 @@ class TrustedAuthorizationResult:
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         raise TypeError(
-            "TrustedAuthorizationResult can only be created by trusted "
-            "authorization"
+            "TrustedAuthorizationResult can only be created by trusted authorization"
         )
 
     @classmethod
@@ -2527,9 +2424,7 @@ class TrustedAuthorizationResult:
         _token: object,
     ) -> TrustedAuthorizationResult:
         if _token is not _TRUSTED_AUTHORIZATION_RESULT_TOKEN:
-            raise TypeError(
-                "TrustedAuthorizationResult requires trusted authorization"
-            )
+            raise TypeError("TrustedAuthorizationResult requires trusted authorization")
         for field_name, digest in (
             ("request_digest", request_digest),
             ("policy_bundle_digest", policy_bundle_digest),
@@ -2553,9 +2448,7 @@ class TrustedAuthorizationResult:
             applicability is None
             or applicability.authority_digest != verified_authority_digest
         ):
-            raise ValueError(
-                "trusted decision must bind the authenticated authority"
-            )
+            raise ValueError("trusted decision must bind the authenticated authority")
 
         result = object.__new__(cls)
         for field_name, value in (
@@ -2592,9 +2485,7 @@ class DecisionReceipt:
     approval_requirements: tuple[ApprovalRequirement, ...]
 
     def __init__(self, *args: object, **kwargs: object) -> None:
-        raise TypeError(
-            "DecisionReceipt can only be created from a Decision"
-        )
+        raise TypeError("DecisionReceipt can only be created from a Decision")
 
     @classmethod
     def _from_evaluation(
@@ -2636,17 +2527,16 @@ class DecisionReceipt:
                 authority_applicability_evidence_digest,
             ),
         )
-        for field_name, digest in optional_digests:
-            if digest is not None and type(digest) is not Sha256Digest:
-                raise TypeError(
-                    f"{field_name} must be a Sha256Digest or None"
-                )
+        for field_name, optional_digest in optional_digests:
+            if (
+                optional_digest is not None
+                and type(optional_digest) is not Sha256Digest
+            ):
+                raise TypeError(f"{field_name} must be a Sha256Digest or None")
 
         if type(outcome) is not Outcome:
             raise TypeError("outcome must be an Outcome")
-        requirements = _canonical_approval_requirements(
-            approval_requirements
-        )
+        requirements = _canonical_approval_requirements(approval_requirements)
         approval_required = outcome is Outcome.APPROVAL_REQUIRED
         if approval_required != bool(requirements):
             raise ValueError(
@@ -2658,9 +2548,7 @@ class DecisionReceipt:
             subject_principal_binding_evidence_digest is not None
             and validated_authority_digest is None
         ):
-            raise ValueError(
-                "binding evidence requires validated authority identity"
-            )
+            raise ValueError("binding evidence requires validated authority identity")
         applicability_fields = (
             authority_applicability_evidence_digest,
             validated_authority_digest,
@@ -2671,8 +2559,7 @@ class DecisionReceipt:
             digest is None for digest in applicability_fields
         ):
             raise ValueError(
-                "applicability evidence requires authority, chain, and state "
-                "identity"
+                "applicability evidence requires authority, chain, and state identity"
             )
         if outcome is not Outcome.DENY and any(
             digest is None
@@ -2685,8 +2572,7 @@ class DecisionReceipt:
             )
         ):
             raise ValueError(
-                "non-deny receipts require complete successful authority "
-                "evidence"
+                "non-deny receipts require complete successful authority evidence"
             )
 
         result = object.__new__(cls)
@@ -2743,9 +2629,7 @@ class PendingApproval:
     status: ApprovalStatus
 
     def __init__(self, *args: object, **kwargs: object) -> None:
-        raise TypeError(
-            "PendingApproval can only be created by approval transitions"
-        )
+        raise TypeError("PendingApproval can only be created by approval transitions")
 
     @classmethod
     def _from_transition(
@@ -2764,17 +2648,13 @@ class PendingApproval:
         if type(receipt) is not DecisionReceipt:
             raise TypeError("receipt must be a DecisionReceipt")
         if receipt.outcome is not Outcome.APPROVAL_REQUIRED:
-            raise ValueError(
-                "pending approval requires an APPROVAL_REQUIRED receipt"
-            )
+            raise ValueError("pending approval requires an APPROVAL_REQUIRED receipt")
         if type(receipt_digest) is not Sha256Digest:
             raise TypeError("receipt_digest must be a Sha256Digest")
         if type(logical_time) is not int:
             raise TypeError("logical_time must be an exact integer")
 
-        states = _canonical_approval_requirement_states(
-            requirement_states
-        )
+        states = _canonical_approval_requirement_states(requirement_states)
         if tuple(state.requirement for state in states) != (
             receipt.approval_requirements
         ):
@@ -2790,20 +2670,13 @@ class PendingApproval:
             if type(consumed_at) is not int:
                 raise TypeError("consumed_at must be an exact integer or None")
             if consumed_at != logical_time:
-                raise ValueError(
-                    "consumed_at must equal the approval logical time"
-                )
+                raise ValueError("consumed_at must equal the approval logical time")
             if not all(
-                status is ApprovalRequirementStatus.APPROVED
-                for status in statuses
+                status is ApprovalRequirementStatus.APPROVED for status in statuses
             ):
-                raise ValueError(
-                    "only fully approved requirements can be consumed"
-                )
+                raise ValueError("only fully approved requirements can be consumed")
             if type(execution_permit_digest) is not Sha256Digest:
-                raise TypeError(
-                    "consumed approval requires an execution permit digest"
-                )
+                raise TypeError("consumed approval requires an execution permit digest")
             status = ApprovalStatus.CONSUMED
         else:
             if execution_permit_digest is not None:
@@ -2818,10 +2691,7 @@ class PendingApproval:
                 status = ApprovalStatus.REJECTED
             elif ApprovalRequirementStatus.EXPIRED in statuses:
                 status = ApprovalStatus.EXPIRED
-            elif all(
-                item is ApprovalRequirementStatus.APPROVED
-                for item in statuses
-            ):
+            elif all(item is ApprovalRequirementStatus.APPROVED for item in statuses):
                 status = ApprovalStatus.APPROVED
             else:
                 status = ApprovalStatus.PENDING
@@ -2844,9 +2714,7 @@ class PendingApproval:
     def approval_requirements(self) -> tuple[ApprovalRequirement, ...]:
         """Return the complete receipt-defined approval requirements."""
 
-        return tuple(
-            state.requirement for state in self.requirement_states
-        )
+        return tuple(state.requirement for state in self.requirement_states)
 
 
 _EXECUTION_PERMIT_TOKEN = object()
@@ -2912,26 +2780,19 @@ class ExecutionPermit:
                 raise TypeError(f"{field_name} must be a Sha256Digest")
         if type(subject_authority_binding) is not SubjectAuthorityBindingResult:
             raise TypeError(
-                "subject_authority_binding must be a "
-                "SubjectAuthorityBindingResult"
+                "subject_authority_binding must be a SubjectAuthorityBindingResult"
             )
-        if (
-            subject_authority_binding.status
-            is not SubjectAuthorityBindingStatus.BOUND
-        ):
+        if subject_authority_binding.status is not SubjectAuthorityBindingStatus.BOUND:
             raise ValueError("execution permit requires bound holder evidence")
         if type(authority_applicability) is not AuthorityApplicabilityResult:
             raise TypeError(
-                "authority_applicability must be an "
-                "AuthorityApplicabilityResult"
+                "authority_applicability must be an AuthorityApplicabilityResult"
             )
         if (
             authority_applicability.status
             is not AuthorityApplicabilityStatus.APPLICABLE
         ):
-            raise ValueError(
-                "execution permit requires applicable authority evidence"
-            )
+            raise ValueError("execution permit requires applicable authority evidence")
         if type(decision) is not Decision:
             raise TypeError("decision must be a Decision")
         if decision.outcome is not Outcome.APPROVAL_REQUIRED:
@@ -2940,41 +2801,23 @@ class ExecutionPermit:
             )
         if decision.evidence.request_digest != current_request_digest:
             raise ValueError("decision must bind the current request")
-        if (
-            decision.evidence.policy_bundle_digest
-            != current_policy_bundle_digest
-        ):
+        if decision.evidence.policy_bundle_digest != current_policy_bundle_digest:
             raise ValueError("decision must bind the current policy bundle")
-        if decision.evidence.subject_authority_binding != (
-            subject_authority_binding
-        ):
+        if decision.evidence.subject_authority_binding != (subject_authority_binding):
             raise ValueError("decision must contain the exact holder evidence")
         if decision.evidence.authority_applicability != authority_applicability:
-            raise ValueError(
-                "decision must contain the exact applicability evidence"
-            )
-        if (
-            authority_applicability.request_digest
-            != current_request_digest
-        ):
+            raise ValueError("decision must contain the exact applicability evidence")
+        if authority_applicability.request_digest != current_request_digest:
             raise ValueError("applicability must bind the current request")
         if (
             authority_applicability.authority_digest
             != current_validated_authority_digest
         ):
             raise ValueError("applicability must bind the current authority")
-        if (
-            authority_applicability.chain_digest
-            != current_delegation_chain_digest
-        ):
+        if authority_applicability.chain_digest != current_delegation_chain_digest:
             raise ValueError("applicability must bind the current chain")
-        if (
-            authority_applicability.state_digest
-            != current_authorization_state_digest
-        ):
-            raise ValueError(
-                "applicability must bind the current authorization state"
-            )
+        if authority_applicability.state_digest != current_authorization_state_digest:
+            raise ValueError("applicability must bind the current authorization state")
 
         result = object.__new__(cls)
         for field_name, value in (
@@ -3015,9 +2858,7 @@ class ExecutionId:
     permit_digest: Sha256Digest
 
     def __init__(self, *args: object, **kwargs: object) -> None:
-        raise TypeError(
-            "ExecutionId can only be derived from an ExecutionPermit"
-        )
+        raise TypeError("ExecutionId can only be derived from an ExecutionPermit")
 
     @classmethod
     def _from_permit_digest(
@@ -3052,13 +2893,8 @@ class ExecutionRecord:
         if type(self.execution_id) is not ExecutionId:
             raise TypeError("execution_id must be an ExecutionId")
         if type(self.execution_permit_digest) is not Sha256Digest:
-            raise TypeError(
-                "execution_permit_digest must be a Sha256Digest"
-            )
-        if (
-            self.execution_id.permit_digest
-            != self.execution_permit_digest
-        ):
+            raise TypeError("execution_permit_digest must be a Sha256Digest")
+        if self.execution_id.permit_digest != self.execution_permit_digest:
             raise ValueError(
                 "execution identity must equal the execution-permit digest"
             )
@@ -3070,29 +2906,14 @@ class ExecutionRecord:
             _non_blank(self.failure_reference, "execution failure reference")
 
         if self.status is ExecutionStatus.RESERVED:
-            if (
-                self.result_reference is not None
-                or self.failure_reference is not None
-            ):
-                raise ValueError(
-                    "RESERVED execution cannot carry a terminal reference"
-                )
+            if self.result_reference is not None or self.failure_reference is not None:
+                raise ValueError("RESERVED execution cannot carry a terminal reference")
         elif self.status is ExecutionStatus.SUCCEEDED:
-            if (
-                self.result_reference is None
-                or self.failure_reference is not None
-            ):
-                raise ValueError(
-                    "SUCCEEDED execution requires only a result reference"
-                )
+            if self.result_reference is None or self.failure_reference is not None:
+                raise ValueError("SUCCEEDED execution requires only a result reference")
         elif self.status is ExecutionStatus.FAILED:
-            if (
-                self.failure_reference is None
-                or self.result_reference is not None
-            ):
-                raise ValueError(
-                    "FAILED execution requires only a failure reference"
-                )
+            if self.failure_reference is None or self.result_reference is not None:
+                raise ValueError("FAILED execution requires only a failure reference")
 
 
 @dataclass(frozen=True, slots=True)
@@ -3104,9 +2925,7 @@ class ExecutionReservationResult:
 
     def __post_init__(self) -> None:
         if type(self.status) is not ExecutionReservationStatus:
-            raise TypeError(
-                "status must be an ExecutionReservationStatus"
-            )
+            raise TypeError("status must be an ExecutionReservationStatus")
         if type(self.record) is not ExecutionRecord:
             raise TypeError("record must be an ExecutionRecord")
 
@@ -3120,9 +2939,7 @@ class ExecutionReservationResult:
         else:
             expected = ExecutionStatus.FAILED
         if self.record.status is not expected:
-            raise ValueError(
-                "reservation status does not match the execution record"
-            )
+            raise ValueError("reservation status does not match the execution record")
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -3166,9 +2983,7 @@ class ExecutionAuthorizationResult:
         _token: object,
     ) -> ExecutionAuthorizationResult:
         if _token is not _EXECUTION_AUTHORIZATION_RESULT_TOKEN:
-            raise TypeError(
-                "ExecutionAuthorizationResult requires revalidation"
-            )
+            raise TypeError("ExecutionAuthorizationResult requires revalidation")
         if type(status) is not ExecutionAuthorizationStatus:
             raise TypeError("status must be an ExecutionAuthorizationStatus")
         for field_name, digest in (
@@ -3188,17 +3003,14 @@ class ExecutionAuthorizationResult:
             if type(digest) is not Sha256Digest:
                 raise TypeError(f"{field_name} must be a Sha256Digest")
         if type(authority_validation) is not AuthorityValidationResult:
-            raise TypeError(
-                "authority_validation must be an AuthorityValidationResult"
-            )
+            raise TypeError("authority_validation must be an AuthorityValidationResult")
         if authority_validation.chain_digest != current_delegation_chain_digest:
             raise ValueError("validation must bind the current chain")
         if authority_validation.state_digest != current_authorization_state_digest:
             raise ValueError("validation must bind the current state")
         if (
             subject_authority_binding is not None
-            and type(subject_authority_binding)
-            is not SubjectAuthorityBindingResult
+            and type(subject_authority_binding) is not SubjectAuthorityBindingResult
         ):
             raise TypeError(
                 "subject_authority_binding must be a "
@@ -3206,8 +3018,7 @@ class ExecutionAuthorizationResult:
             )
         if (
             authority_applicability is not None
-            and type(authority_applicability)
-            is not AuthorityApplicabilityResult
+            and type(authority_applicability) is not AuthorityApplicabilityResult
         ):
             raise TypeError(
                 "authority_applicability must be an "
@@ -3217,33 +3028,23 @@ class ExecutionAuthorizationResult:
             raise TypeError("decision must be a Decision")
         if decision.evidence.request_digest != current_request_digest:
             raise ValueError("decision must bind the current request")
-        if (
-            decision.evidence.policy_bundle_digest
-            != current_policy_bundle_digest
-        ):
+        if decision.evidence.policy_bundle_digest != current_policy_bundle_digest:
             raise ValueError("decision must bind the current policy bundle")
-        if decision.evidence.subject_authority_binding != (
-            subject_authority_binding
-        ):
+        if decision.evidence.subject_authority_binding != (subject_authority_binding):
             raise ValueError("result must preserve exact holder evidence")
         if decision.evidence.authority_applicability != authority_applicability:
             raise ValueError("result must preserve exact applicability evidence")
 
         authorized = status is ExecutionAuthorizationStatus.AUTHORIZED
         if authorized != (execution_permit is not None):
-            raise ValueError(
-                "execution_permit must be present exactly for AUTHORIZED"
-            )
+            raise ValueError("execution_permit must be present exactly for AUTHORIZED")
         if execution_permit is not None:
             if type(execution_permit) is not ExecutionPermit:
                 raise TypeError("execution_permit must be an ExecutionPermit")
             if (
-                execution_permit.original_receipt_digest
-                != original_receipt_digest
-                or execution_permit.approved_state_digest
-                != approved_state_digest
-                or execution_permit.current_request_digest
-                != current_request_digest
+                execution_permit.original_receipt_digest != original_receipt_digest
+                or execution_permit.approved_state_digest != approved_state_digest
+                or execution_permit.current_request_digest != current_request_digest
                 or execution_permit.current_policy_bundle_digest
                 != current_policy_bundle_digest
                 or execution_permit.current_delegation_chain_digest
@@ -3319,27 +3120,20 @@ class TrustedExecutionAuthorizationResult:
                 "execution revalidation"
             )
         if type(status) is not TrustedExecutionAuthorizationStatus:
-            raise TypeError(
-                "status must be a TrustedExecutionAuthorizationStatus"
-            )
+            raise TypeError("status must be a TrustedExecutionAuthorizationStatus")
         if type(current_request_digest) is not Sha256Digest:
             raise TypeError("current_request_digest must be a Sha256Digest")
         if type(policy_bundle_digest) is not Sha256Digest:
             raise TypeError("policy_bundle_digest must be a Sha256Digest")
         if type(trusted_policy_digest) is not Sha256Digest:
             raise TypeError("trusted_policy_digest must be a Sha256Digest")
-        if (
-            type(delegation_authentication)
-            is not DelegationAuthenticationResult
-        ):
+        if type(delegation_authentication) is not DelegationAuthenticationResult:
             raise TypeError(
-                "delegation_authentication must be a "
-                "DelegationAuthenticationResult"
+                "delegation_authentication must be a DelegationAuthenticationResult"
             )
         if (
             execution_authorization is not None
-            and type(execution_authorization)
-            is not ExecutionAuthorizationResult
+            and type(execution_authorization) is not ExecutionAuthorizationResult
         ):
             raise TypeError(
                 "execution_authorization must be an "
@@ -3352,8 +3146,7 @@ class TrustedExecutionAuthorizationResult:
         )
         if not authentication_succeeded:
             expected = (
-                TrustedExecutionAuthorizationStatus
-                .DELEGATION_AUTHENTICATION_FAILED
+                TrustedExecutionAuthorizationStatus.DELEGATION_AUTHENTICATION_FAILED
             )
             if execution_authorization is not None:
                 raise ValueError(
@@ -3369,23 +3162,15 @@ class TrustedExecutionAuthorizationResult:
                 TrustedExecutionAuthorizationStatus.AUTHORIZED
                 if execution_authorization.status
                 is ExecutionAuthorizationStatus.AUTHORIZED
-                else TrustedExecutionAuthorizationStatus
-                .EXECUTION_REVALIDATION_FAILED
+                else TrustedExecutionAuthorizationStatus.EXECUTION_REVALIDATION_FAILED
             )
-            if (
-                execution_authorization.current_request_digest
-                != current_request_digest
-            ):
-                raise ValueError(
-                    "execution revalidation must bind the current request"
-                )
+            if execution_authorization.current_request_digest != current_request_digest:
+                raise ValueError("execution revalidation must bind the current request")
             if (
                 execution_authorization.current_policy_bundle_digest
                 != policy_bundle_digest
             ):
-                raise ValueError(
-                    "execution revalidation must bind the trusted policy"
-                )
+                raise ValueError("execution revalidation must bind the trusted policy")
             if (
                 execution_authorization.authority_validation
                 != delegation_authentication.authority_validation
@@ -3395,9 +3180,7 @@ class TrustedExecutionAuthorizationResult:
                     "delegation validation"
                 )
         if status is not expected:
-            raise ValueError(
-                "trusted execution status does not match nested evidence"
-            )
+            raise ValueError("trusted execution status does not match nested evidence")
 
         result = object.__new__(cls)
         object.__setattr__(result, "status", status)

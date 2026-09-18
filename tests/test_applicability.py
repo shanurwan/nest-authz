@@ -9,8 +9,8 @@ import unittest
 from nest_authz import (
     Action,
     ApprovalRequirement,
-    AuthorityContext,
     AuthorityApplicabilityStatus,
+    AuthorityContext,
     AuthorityGrant,
     AuthorityScope,
     AuthorizationRequest,
@@ -33,9 +33,11 @@ from nest_authz import (
     SubjectPrincipalBinding,
     canonical_bytes,
     check_authority_applicability,
-    evaluate as _evaluate_with_binding,
     sha256_digest,
     validate_authority,
+)
+from nest_authz import (
+    evaluate as _evaluate_with_binding,
 )
 
 
@@ -443,8 +445,7 @@ class AuthorityApplicabilityTests(unittest.TestCase):
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Import):
                         imported_roots.update(
-                            alias.name.split(".", maxsplit=1)[0]
-                            for alias in node.names
+                            alias.name.split(".", maxsplit=1)[0] for alias in node.names
                         )
                     elif isinstance(node, ast.ImportFrom) and node.level == 0:
                         imported_roots.add(
@@ -453,9 +454,7 @@ class AuthorityApplicabilityTests(unittest.TestCase):
                     elif isinstance(node, ast.Name):
                         names.add(node.id)
 
-                self.assertTrue(
-                    prohibited_import_roots.isdisjoint(imported_roots)
-                )
+                self.assertTrue(prohibited_import_roots.isdisjoint(imported_roots))
                 self.assertNotIn("open", names)
 
 

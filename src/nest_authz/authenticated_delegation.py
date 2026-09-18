@@ -6,10 +6,11 @@ from .attestation import verify_artifact
 from .canonical import sha256_digest
 from .delegation import validate_authority
 from .domain import (
+    _AUTHENTICATED_DELEGATED_AUTHORITY_TOKEN,
+    _DELEGATION_AUTHENTICATION_RESULT_TOKEN,
     ArtifactPurpose,
     ArtifactVerificationStatus,
     AuthenticatedDelegatedAuthority,
-    AuthorityGrant,
     AuthorityValidationResult,
     AuthorityValidationStatus,
     AuthorizationState,
@@ -25,8 +26,6 @@ from .domain import (
     SigningKeyId,
     TrustedAuthorityRoots,
     TrustStore,
-    _AUTHENTICATED_DELEGATED_AUTHORITY_TOKEN,
-    _DELEGATION_AUTHENTICATION_RESULT_TOKEN,
 )
 
 
@@ -58,10 +57,7 @@ def _verification_failure_status(
     if status is ArtifactVerificationStatus.UNKNOWN_KEY:
         return DelegationAuthenticationStatus.UNKNOWN_SIGNING_KEY
     if status is ArtifactVerificationStatus.KEY_NOT_TRUSTED_FOR_PURPOSE:
-        return (
-            DelegationAuthenticationStatus
-            .KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT
-        )
+        return DelegationAuthenticationStatus.KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT
     if status in (
         ArtifactVerificationStatus.DIGEST_MISMATCH,
         ArtifactVerificationStatus.ARTIFACT_KIND_MISMATCH,
@@ -117,19 +113,13 @@ def authenticate_delegation_chain(
     if type(state) is not AuthorizationState:
         raise TypeError("state must be an AuthorizationState")
     if type(grant_attestations) is not GrantAttestationSet:
-        raise TypeError(
-            "grant_attestations must be a GrantAttestationSet"
-        )
+        raise TypeError("grant_attestations must be a GrantAttestationSet")
     if type(trust_store) is not TrustStore:
         raise TypeError("trust_store must be a TrustStore")
     if type(principal_key_registry) is not PrincipalKeyRegistry:
-        raise TypeError(
-            "principal_key_registry must be a PrincipalKeyRegistry"
-        )
+        raise TypeError("principal_key_registry must be a PrincipalKeyRegistry")
     if type(trusted_authority_roots) is not TrustedAuthorityRoots:
-        raise TypeError(
-            "trusted_authority_roots must be TrustedAuthorityRoots"
-        )
+        raise TypeError("trusted_authority_roots must be TrustedAuthorityRoots")
 
     authority_validation = validate_authority(chain, state)
     grant_attestations_digest = sha256_digest(grant_attestations)
@@ -139,10 +129,7 @@ def authenticate_delegation_chain(
 
     if authority_validation.status is not AuthorityValidationStatus.VALID:
         return _result(
-            status=(
-                DelegationAuthenticationStatus
-                .STRUCTURAL_AUTHORITY_INVALID
-            ),
+            status=(DelegationAuthenticationStatus.STRUCTURAL_AUTHORITY_INVALID),
             authority_validation=authority_validation,
             grant_attestations_digest=grant_attestations_digest,
             trust_store_digest=trust_store_digest,
@@ -152,35 +139,26 @@ def authenticate_delegation_chain(
         )
 
     chain_ids = tuple(grant.identifier for grant in chain.grants)
-    for entry in grant_attestations.entries:
-        if entry.grant_id not in chain_ids:
+    for supplied_entry in grant_attestations.entries:
+        if supplied_entry.grant_id not in chain_ids:
             return _result(
-                status=(
-                    DelegationAuthenticationStatus
-                    .UNKNOWN_GRANT_ATTESTATION
-                ),
+                status=(DelegationAuthenticationStatus.UNKNOWN_GRANT_ATTESTATION),
                 authority_validation=authority_validation,
                 grant_attestations_digest=grant_attestations_digest,
                 trust_store_digest=trust_store_digest,
-                principal_key_registry_digest=(
-                    principal_key_registry_digest
-                ),
-                trusted_authority_roots_digest=(
-                    trusted_authority_roots_digest
-                ),
-                offending_grant_id=entry.grant_id,
+                principal_key_registry_digest=(principal_key_registry_digest),
+                trusted_authority_roots_digest=(trusted_authority_roots_digest),
+                offending_grant_id=supplied_entry.grant_id,
             )
 
     evidence: list[GrantAuthenticationEvidence] = []
     for index, grant in enumerate(chain.grants):
         is_root = index == 0
         root_principal_trusted = (
-            grant.grantor in trusted_authority_roots.principals
-            if is_root
-            else None
+            grant.grantor in trusted_authority_roots.principals if is_root else None
         )
-        entry = _attestation_for(grant_attestations, grant.identifier)
-        if entry is None:
+        grant_entry = _attestation_for(grant_attestations, grant.identifier)
+        if grant_entry is None:
             evidence.append(
                 GrantAuthenticationEvidence(
                     grant_id=grant.identifier,
@@ -190,20 +168,18 @@ def authenticate_delegation_chain(
                     signing_key_id=None,
                     bound_principal=None,
                     verification=None,
-                    status=(
-                        DelegationAuthenticationStatus.MISSING_ATTESTATION
-                    ),
+                    status=(DelegationAuthenticationStatus.MISSING_ATTESTATION),
                 )
             )
             continue
 
         verification = verify_artifact(
             grant,
-            entry.attestation,
+            grant_entry.attestation,
             trust_store,
             ArtifactPurpose.AUTHORITY_GRANT,
         )
-        key_id = entry.attestation.key_id
+        key_id = grant_entry.attestation.key_id
         bound_principal = _principal_for_key(
             principal_key_registry,
             key_id,
@@ -211,15 +187,9 @@ def authenticate_delegation_chain(
         status = _verification_failure_status(verification.status)
         if status is None:
             if bound_principal != grant.grantor:
-                status = (
-                    DelegationAuthenticationStatus
-                    .SIGNER_KEY_NOT_BOUND_TO_GRANTOR
-                )
+                status = DelegationAuthenticationStatus.SIGNER_KEY_NOT_BOUND_TO_GRANTOR
             elif is_root and not root_principal_trusted:
-                status = (
-                    DelegationAuthenticationStatus
-                    .UNTRUSTED_ROOT_PRINCIPAL
-                )
+                status = DelegationAuthenticationStatus.UNTRUSTED_ROOT_PRINCIPAL
             else:
                 status = DelegationAuthenticationStatus.AUTHENTICATED
 
@@ -240,8 +210,7 @@ def authenticate_delegation_chain(
         (
             item
             for item in evidence
-            if item.status
-            is not DelegationAuthenticationStatus.AUTHENTICATED
+            if item.status is not DelegationAuthenticationStatus.AUTHENTICATED
         ),
         None,
     )
@@ -260,17 +229,15 @@ def authenticate_delegation_chain(
     verified_authority = authority_validation.verified_authority
     if verified_authority is None:
         raise RuntimeError("VALID authority did not contain verified authority")
-    authenticated_authority = (
-        AuthenticatedDelegatedAuthority._from_authentication(
-            verified_authority=verified_authority,
-            authority_validation_digest=sha256_digest(authority_validation),
-            grant_attestations_digest=grant_attestations_digest,
-            trust_store_digest=trust_store_digest,
-            principal_key_registry_digest=principal_key_registry_digest,
-            trusted_authority_roots_digest=trusted_authority_roots_digest,
-            grant_evidence=evidence,
-            _token=_AUTHENTICATED_DELEGATED_AUTHORITY_TOKEN,
-        )
+    authenticated_authority = AuthenticatedDelegatedAuthority._from_authentication(
+        verified_authority=verified_authority,
+        authority_validation_digest=sha256_digest(authority_validation),
+        grant_attestations_digest=grant_attestations_digest,
+        trust_store_digest=trust_store_digest,
+        principal_key_registry_digest=principal_key_registry_digest,
+        trusted_authority_roots_digest=trusted_authority_roots_digest,
+        grant_evidence=evidence,
+        _token=_AUTHENTICATED_DELEGATED_AUTHORITY_TOKEN,
     )
     return _result(
         status=DelegationAuthenticationStatus.AUTHENTICATED,
