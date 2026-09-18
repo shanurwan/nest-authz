@@ -133,6 +133,23 @@ class ExecutionAuthorizationStatus(Enum):
     POLICY_BUNDLE_MISMATCH = "POLICY_BUNDLE_MISMATCH"
 
 
+class ExecutionStatus(Enum):
+    """The durable lifecycle state of one exact execution permit."""
+
+    RESERVED = "RESERVED"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class ExecutionReservationStatus(Enum):
+    """The explicit result of reserving one exact execution permit."""
+
+    NEW_RESERVATION = "NEW_RESERVATION"
+    EXISTING_RESERVED = "EXISTING_RESERVED"
+    ALREADY_SUCCEEDED = "ALREADY_SUCCEEDED"
+    FAILED_EXISTING = "FAILED_EXISTING"
+
+
 class SignatureScheme(Enum):
     """The closed set of supported artifact-signature schemes."""
 
@@ -2986,6 +3003,126 @@ class ExecutionPermit:
 
 
 _EXECUTION_AUTHORIZATION_RESULT_TOKEN = object()
+
+
+_EXECUTION_ID_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ExecutionId:
+    """The exact SHA-256 content identity of one ExecutionPermit."""
+
+    permit_digest: Sha256Digest
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "ExecutionId can only be derived from an ExecutionPermit"
+        )
+
+    @classmethod
+    def _from_permit_digest(
+        cls,
+        permit_digest: Sha256Digest,
+        *,
+        _token: object,
+    ) -> ExecutionId:
+        if _token is not _EXECUTION_ID_TOKEN:
+            raise TypeError("ExecutionId requires an ExecutionPermit digest")
+        if type(permit_digest) is not Sha256Digest:
+            raise TypeError("permit_digest must be a Sha256Digest")
+        result = object.__new__(cls)
+        object.__setattr__(result, "permit_digest", permit_digest)
+        return result
+
+    def __str__(self) -> str:
+        return f"execution:{self.permit_digest}"
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionRecord:
+    """One immutable logical snapshot of durable execution state."""
+
+    execution_id: ExecutionId
+    execution_permit_digest: Sha256Digest
+    status: ExecutionStatus
+    result_reference: str | None = None
+    failure_reference: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.execution_id) is not ExecutionId:
+            raise TypeError("execution_id must be an ExecutionId")
+        if type(self.execution_permit_digest) is not Sha256Digest:
+            raise TypeError(
+                "execution_permit_digest must be a Sha256Digest"
+            )
+        if (
+            self.execution_id.permit_digest
+            != self.execution_permit_digest
+        ):
+            raise ValueError(
+                "execution identity must equal the execution-permit digest"
+            )
+        if type(self.status) is not ExecutionStatus:
+            raise TypeError("status must be an ExecutionStatus")
+        if self.result_reference is not None:
+            _non_blank(self.result_reference, "execution result reference")
+        if self.failure_reference is not None:
+            _non_blank(self.failure_reference, "execution failure reference")
+
+        if self.status is ExecutionStatus.RESERVED:
+            if (
+                self.result_reference is not None
+                or self.failure_reference is not None
+            ):
+                raise ValueError(
+                    "RESERVED execution cannot carry a terminal reference"
+                )
+        elif self.status is ExecutionStatus.SUCCEEDED:
+            if (
+                self.result_reference is None
+                or self.failure_reference is not None
+            ):
+                raise ValueError(
+                    "SUCCEEDED execution requires only a result reference"
+                )
+        elif self.status is ExecutionStatus.FAILED:
+            if (
+                self.failure_reference is None
+                or self.result_reference is not None
+            ):
+                raise ValueError(
+                    "FAILED execution requires only a failure reference"
+                )
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionReservationResult:
+    """Typed idempotent result of an atomic permit reservation."""
+
+    status: ExecutionReservationStatus
+    record: ExecutionRecord
+
+    def __post_init__(self) -> None:
+        if type(self.status) is not ExecutionReservationStatus:
+            raise TypeError(
+                "status must be an ExecutionReservationStatus"
+            )
+        if type(self.record) is not ExecutionRecord:
+            raise TypeError("record must be an ExecutionRecord")
+
+        if self.status in (
+            ExecutionReservationStatus.NEW_RESERVATION,
+            ExecutionReservationStatus.EXISTING_RESERVED,
+        ):
+            expected = ExecutionStatus.RESERVED
+        elif self.status is ExecutionReservationStatus.ALREADY_SUCCEEDED:
+            expected = ExecutionStatus.SUCCEEDED
+        else:
+            expected = ExecutionStatus.FAILED
+        if self.record.status is not expected:
+            raise ValueError(
+                "reservation status does not match the execution record"
+            )
 
 
 @dataclass(frozen=True, slots=True, init=False)

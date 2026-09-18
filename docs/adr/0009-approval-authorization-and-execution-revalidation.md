@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-09-18
 - Amends: ADR 0008 approval actors and consumption boundary
+- Amended by: ADR 0012 atomic execution enforcement
 
 ## Context
 
@@ -227,6 +228,14 @@ approved value independently. Future persistence must atomically compare and
 swap the exact pending-approval identity from `APPROVED` to `CONSUMED` while
 binding the transition to the exact execution permit. No persistence or
 protected-operation execution is introduced here.
+
+ADR 0012 supplies the first durable enforcement boundary. Its atomic
+reservation of the exact `ExecutionPermit`, rather than an independently
+derived in-memory `CONSUMED` value, is authoritative for duplicate prevention.
+Only `NEW_RESERVATION` permits the caller to invoke the protected operation.
+The pure consumption transition may still record audit state after reservation,
+but version 1 does not claim an atomic transaction across approval state,
+execution storage, and an external side effect.
 
 ## Canonical Schemas and Versioning
 

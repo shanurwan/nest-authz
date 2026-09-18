@@ -38,7 +38,12 @@ from .domain import (
     Ed25519PublicKey,
     ExecutionAuthorizationResult,
     ExecutionAuthorizationStatus,
+    ExecutionId,
     ExecutionPermit,
+    ExecutionRecord,
+    ExecutionReservationResult,
+    ExecutionReservationStatus,
+    ExecutionStatus,
     GrantAttestation,
     GrantAttestationSet,
     GrantAuthenticationEvidence,
@@ -100,7 +105,16 @@ from .canonical import canonical_bytes, sha256_digest
 from .delegation import AuthorityValidationError, validate_authority
 from .evaluator import EvaluationError, evaluate
 from .execution import revalidate_for_execution
+from .execution_enforcement import execution_id_for
+from .execution_store import ExecutionStore
 from .receipt import create_decision_receipt
+from .sqlite_execution_store import (
+    ExecutionPermitMismatchError,
+    ExecutionRecordNotFoundError,
+    ExecutionStoreError,
+    ExecutionTransitionError,
+    SQLiteExecutionStore,
+)
 from .trusted import authorize_trusted, revalidate_trusted_for_execution
 
 __all__ = [
@@ -144,7 +158,17 @@ __all__ = [
     "Ed25519PublicKey",
     "ExecutionAuthorizationResult",
     "ExecutionAuthorizationStatus",
+    "ExecutionId",
     "ExecutionPermit",
+    "ExecutionPermitMismatchError",
+    "ExecutionRecord",
+    "ExecutionRecordNotFoundError",
+    "ExecutionReservationResult",
+    "ExecutionReservationStatus",
+    "ExecutionStatus",
+    "ExecutionStore",
+    "ExecutionStoreError",
+    "ExecutionTransitionError",
     "GrantAttestation",
     "GrantAttestationSet",
     "GrantAuthenticationEvidence",
@@ -167,6 +191,7 @@ __all__ = [
     "RuleEvaluationStatus",
     "RevocationSet",
     "Sha256Digest",
+    "SQLiteExecutionStore",
     "SignatureScheme",
     "SigningKeyId",
     "Subject",
@@ -196,6 +221,7 @@ __all__ = [
     "EvaluationError",
     "evaluate",
     "expire_requirement",
+    "execution_id_for",
     "reject_requirement",
     "revalidate_for_execution",
     "revalidate_trusted_for_execution",

@@ -43,7 +43,12 @@ from .domain import (
     Ed25519PublicKey,
     ExecutionAuthorizationResult,
     ExecutionAuthorizationStatus,
+    ExecutionId,
     ExecutionPermit,
+    ExecutionRecord,
+    ExecutionReservationResult,
+    ExecutionReservationStatus,
+    ExecutionStatus,
     GrantAttestation,
     GrantAttestationSet,
     GrantAuthenticationEvidence,
@@ -1029,6 +1034,49 @@ def _encode_domain(value: object) -> bytes:
                     "execution_permit",
                     _encode_optional_domain(value.execution_permit),
                 ),
+            ),
+        )
+    if value_type is ExecutionId:
+        return _encode_record(
+            "nest-authz/execution-id@1",
+            (("permit_digest", _encode_domain(value.permit_digest)),),
+        )
+    if value_type is ExecutionStatus:
+        return _encode_record(
+            "nest-authz/execution-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is ExecutionRecord:
+        return _encode_record(
+            "nest-authz/execution-record@1",
+            (
+                ("execution_id", _encode_domain(value.execution_id)),
+                (
+                    "execution_permit_digest",
+                    _encode_domain(value.execution_permit_digest),
+                ),
+                ("status", _encode_domain(value.status)),
+                (
+                    "result_reference",
+                    _encode_scalar(value.result_reference),
+                ),
+                (
+                    "failure_reference",
+                    _encode_scalar(value.failure_reference),
+                ),
+            ),
+        )
+    if value_type is ExecutionReservationStatus:
+        return _encode_record(
+            "nest-authz/execution-reservation-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is ExecutionReservationResult:
+        return _encode_record(
+            "nest-authz/execution-reservation-result@1",
+            (
+                ("status", _encode_domain(value.status)),
+                ("record", _encode_domain(value.record)),
             ),
         )
     if value_type is TrustedExecutionAuthorizationStatus:

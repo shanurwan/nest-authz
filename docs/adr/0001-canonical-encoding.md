@@ -90,6 +90,11 @@ decision have a canonical representation:
 - `ExecutionAuthorizationStatus`
 - `ExecutionAuthorizationResult`
 - `ExecutionPermit`
+- `ExecutionId`
+- `ExecutionStatus`
+- `ExecutionRecord`
+- `ExecutionReservationStatus`
+- `ExecutionReservationResult`
 - `SigningKeyId`
 - `Ed25519PublicKey`
 - `ArtifactSignature`
@@ -187,6 +192,11 @@ ADR 0011 adds configured Principal/key association, explicit authority roots,
 detached grant-attestation collections, authenticated-delegation evidence, and
 trusted authorization/execution wrapper records. It changes no existing
 canonical record and does not make private keys canonical.
+
+ADR 0012 adds deterministic execution identity, logical durable-execution
+state, and typed reservation results. It changes no existing canonical record.
+SQLite paths, rows, connections, transactions, and configuration remain
+operational adapter details and are deliberately not canonical values.
 
 Map keys are strings. Entries are sorted lexicographically by the strict UTF-8
 bytes of their keys. The serialized map key is still a complete `S` frame, so

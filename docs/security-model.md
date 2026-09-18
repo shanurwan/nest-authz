@@ -201,8 +201,10 @@ revoked authority, apply to a changed request or policy, widen authority, bypass
 holder binding, or bypass `DENY`.
 
 The pure in-memory state machine does not prevent distributed double
-consumption. Persistent enforcement will require an atomic compare-and-swap or
-transactional consume operation.
+consumption. Durable execution enforcement atomically reserves the exact
+`ExecutionPermit`; only a new reservation may reach the protected operation.
+The pure `CONSUMED` value remains audit state and is not the duplicate-
+prevention authority.
 
 ### INV-013 — Approver Identity Is Not Approval Authority
 
@@ -251,6 +253,21 @@ that Principal is separately trusted as a root. Cryptographic signatures MUST
 NOT rescue broken provenance, widened scope, revocation, or logical-time
 invalidity.
 
+### INV-017 — Execution Permits Must Be Durably Reserved Once
+
+An authenticated and freshly revalidated `ExecutionPermit` is necessary but
+not sufficient to invoke a protected operation. The enforcement point MUST
+atomically reserve the permit's deterministic `ExecutionId` in authoritative
+durable storage before invocation and MUST proceed only for the sole
+`NEW_RESERVATION` result. Replays in `RESERVED`, `SUCCEEDED`, or `FAILED` state
+MUST NOT create another logical execution or independently invoke the operation.
+
+The execution ID MUST be bound to the exact permit without clocks, randomness,
+or process-local hashing. Durable reservation prevents duplicate admission; it
+does not make an arbitrary external side effect exactly once. Protected-
+operation adapters MUST use the execution ID as a downstream idempotency key or
+adopt an equivalent reliable side-effect protocol.
+
 ---
 
 ## Trust Boundary
@@ -280,7 +297,10 @@ requirement's allowlist. It does not authenticate the assertion.
 revalidation. A bare permit is not authenticated. A separately verified
 detached attestation can authenticate issuance relative to the caller-supplied
 trust store, but neither the permit nor its attestation provides
-non-repudiation or distributed single-use consumption.
+non-repudiation or single-use enforcement by itself. The SQLite reference
+adapter supplies an atomic local durable reservation boundary for one shared
+database file; it assumes database, filesystem, and process integrity and does
+not provide distributed consensus or atomicity with external operations.
 
 The trust store, Principal/key registry, and trusted-authority-root set are
 explicit caller-supplied security state. The core performs no network key
