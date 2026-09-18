@@ -2,11 +2,15 @@
 
 - Status: Accepted
 - Date: 2026-09-18
-- Amended by: ADR 0006
+- Amended by: ADR 0006 and ADR 0011
 
 ADR 0006 clarifies the limited trust proven by `VerifiedAuthority`, adds
 request applicability, and integrates that separate gate with policy
 evaluation without changing delegation validation semantics.
+
+ADR 0011 composes this structural validator with detached grant attestations,
+explicit Principal/key bindings, and explicit root trust. It does not change
+the attenuation, revocation, or logical-time algorithm defined here.
 
 ## Problem
 

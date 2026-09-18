@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-18
+- Amended by: ADR 0011 at the delegated-authority integration boundary
 
 ## Context
 
@@ -201,10 +202,12 @@ A verified `AuthorityGrant` attestation proves that the configured public key
 corresponding to the key ID signed the exact domain-separated grant identity
 and that the supplied trust store authorizes the key for `AUTHORITY_GRANT`.
 
-It does not prove that the key belongs to `AuthorityGrant.grantor`, that a
-Principal controls the key, or that every link in a delegation chain has been
-cryptographically issued by its grantor. Principal-to-key binding and full
-cryptographic delegation provenance are separate future integration work.
+On its own, generic `verify_artifact()` does not prove that the key belongs to
+`AuthorityGrant.grantor`, that a Principal controls the key, or that every link
+in a delegation chain has been issued by its logical grantor. ADR 0011 adds a
+separate composed boundary that requires an explicit configured Principal/key
+binding for every verified grant and an explicit trusted root. That configured
+association is still not external identity or key-ownership proof.
 
 ## Receipt and Execution-Permit Semantics
 

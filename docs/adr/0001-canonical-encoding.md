@@ -102,6 +102,18 @@ decision have a canonical representation:
 - `ArtifactVerificationStatus`
 - `ArtifactVerificationResult`
 - `TrustedPolicyBundle`
+- `PrincipalKeyBinding`
+- `PrincipalKeyRegistry`
+- `TrustedAuthorityRoots`
+- `GrantAttestation`
+- `GrantAttestationSet`
+- `DelegationAuthenticationStatus`
+- `GrantAuthenticationEvidence`
+- `AuthenticatedDelegatedAuthority`
+- `DelegationAuthenticationResult`
+- `TrustedAuthorizationResult`
+- `TrustedExecutionAuthorizationStatus`
+- `TrustedExecutionAuthorizationResult`
 
 The public operations are:
 
@@ -171,6 +183,11 @@ and trusted-policy-wrapper records without changing an existing canonical
 record. Cryptographic private keys remain operational inputs and deliberately
 have no canonical schema.
 
+ADR 0011 adds configured Principal/key association, explicit authority roots,
+detached grant-attestation collections, authenticated-delegation evidence, and
+trusted authorization/execution wrapper records. It changes no existing
+canonical record and does not make private keys canonical.
+
 Map keys are strings. Entries are sorted lexicographically by the strict UTF-8
 bytes of their keys. The serialized map key is still a complete `S` frame, so
 the ordering rule and the encoded data are both explicit. Duplicate map keys
@@ -232,6 +249,11 @@ order within a trusted key non-semantic. Keys are sorted by strict UTF-8 key-ID
 bytes, and purposes are sorted by strict UTF-8 enum-value bytes. Attestation
 fields and verification evidence are fixed records, not caller-ordered
 collections.
+
+ADR 0011 declares Principal/key-registry, trusted-root, and grant-attestation
+collection ordering non-semantic. They are sorted by strict UTF-8 Principal or
+grant identifier bytes. Per-grant authentication evidence preserves semantic
+root-to-leaf delegation order.
 
 ## String and Unicode Handling
 

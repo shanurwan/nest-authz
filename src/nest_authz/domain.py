@@ -170,6 +170,35 @@ class ArtifactVerificationStatus(Enum):
     SCHEME_UNSUPPORTED = "SCHEME_UNSUPPORTED"
 
 
+class DelegationAuthenticationStatus(Enum):
+    """The result of authenticating complete delegation provenance."""
+
+    AUTHENTICATED = "AUTHENTICATED"
+    MISSING_ATTESTATION = "MISSING_ATTESTATION"
+    ATTESTATION_INVALID = "ATTESTATION_INVALID"
+    SIGNER_KEY_NOT_BOUND_TO_GRANTOR = (
+        "SIGNER_KEY_NOT_BOUND_TO_GRANTOR"
+    )
+    UNTRUSTED_ROOT_PRINCIPAL = "UNTRUSTED_ROOT_PRINCIPAL"
+    UNKNOWN_SIGNING_KEY = "UNKNOWN_SIGNING_KEY"
+    KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT = (
+        "KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT"
+    )
+    GRANT_ARTIFACT_MISMATCH = "GRANT_ARTIFACT_MISMATCH"
+    STRUCTURAL_AUTHORITY_INVALID = "STRUCTURAL_AUTHORITY_INVALID"
+    UNKNOWN_GRANT_ATTESTATION = "UNKNOWN_GRANT_ATTESTATION"
+
+
+class TrustedExecutionAuthorizationStatus(Enum):
+    """The result of trusted execution-time orchestration."""
+
+    AUTHORIZED = "AUTHORIZED"
+    DELEGATION_AUTHENTICATION_FAILED = (
+        "DELEGATION_AUTHENTICATION_FAILED"
+    )
+    EXECUTION_REVALIDATION_FAILED = "EXECUTION_REVALIDATION_FAILED"
+
+
 _Scalar: TypeAlias = str | int | bool | None
 _Fields: TypeAlias = tuple[tuple[str, _Scalar], ...]
 _ConditionResults: TypeAlias = tuple[tuple[str, ConditionStatus], ...]
@@ -609,6 +638,96 @@ class Principal:
 
 
 @dataclass(frozen=True, slots=True)
+class PrincipalKeyBinding:
+    """One explicit configured Principal-to-signing-key association."""
+
+    principal: Principal
+    key_id: SigningKeyId
+
+    def __post_init__(self) -> None:
+        if type(self.principal) is not Principal:
+            raise TypeError("binding principal must be a Principal")
+        if type(self.key_id) is not SigningKeyId:
+            raise TypeError("binding key_id must be a SigningKeyId")
+
+
+@dataclass(frozen=True, slots=True)
+class PrincipalKeyRegistry:
+    """An explicit immutable one-to-one Principal/signing-key registry."""
+
+    bindings: tuple[PrincipalKeyBinding, ...] = ()
+
+    def __post_init__(self) -> None:
+        bindings = _typed_tuple(
+            self.bindings,
+            PrincipalKeyBinding,
+            "principal-key bindings",
+        )
+        principals: set[str] = set()
+        key_ids: set[str] = set()
+        for binding in bindings:
+            principal_id = binding.principal.identifier
+            key_id = binding.key_id.identifier
+            if principal_id in principals:
+                raise ValueError(
+                    "principal-key registry contains a duplicate or "
+                    "conflicting Principal binding"
+                )
+            if key_id in key_ids:
+                raise ValueError(
+                    "principal-key registry contains a duplicate or "
+                    "conflicting signing-key binding"
+                )
+            principals.add(principal_id)
+            key_ids.add(key_id)
+        object.__setattr__(
+            self,
+            "bindings",
+            tuple(
+                sorted(
+                    bindings,
+                    key=lambda binding: (
+                        binding.principal.identifier.encode("utf-8")
+                    ),
+                )
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedAuthorityRoots:
+    """Exact Principals permitted to originate root authority grants."""
+
+    principals: tuple[Principal, ...] = ()
+
+    def __post_init__(self) -> None:
+        principals = _typed_tuple(
+            self.principals,
+            Principal,
+            "trusted authority roots",
+        )
+        identifiers: set[str] = set()
+        for principal in principals:
+            if principal.identifier in identifiers:
+                raise ValueError(
+                    "trusted authority roots must not contain duplicates"
+                )
+            identifiers.add(principal.identifier)
+        object.__setattr__(
+            self,
+            "principals",
+            tuple(
+                sorted(
+                    principals,
+                    key=lambda principal: principal.identifier.encode(
+                        "utf-8"
+                    ),
+                )
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class SubjectPrincipalBinding:
     """An externally supplied assertion relating a Subject to a Principal."""
 
@@ -700,6 +819,50 @@ class DelegationChain:
         if not grants:
             raise ValueError("a delegation chain must contain at least one grant")
         object.__setattr__(self, "grants", grants)
+
+
+@dataclass(frozen=True, slots=True)
+class GrantAttestation:
+    """One detached attestation associated with one semantic grant ID."""
+
+    grant_id: str
+    attestation: ArtifactAttestation
+
+    def __post_init__(self) -> None:
+        _non_blank(self.grant_id, "attested grant identifier")
+        if type(self.attestation) is not ArtifactAttestation:
+            raise TypeError("attestation must be an ArtifactAttestation")
+
+
+@dataclass(frozen=True, slots=True)
+class GrantAttestationSet:
+    """An immutable exact grant-ID to detached-attestation collection."""
+
+    entries: tuple[GrantAttestation, ...] = ()
+
+    def __post_init__(self) -> None:
+        entries = _typed_tuple(
+            self.entries,
+            GrantAttestation,
+            "grant attestations",
+        )
+        grant_ids: set[str] = set()
+        for entry in entries:
+            if entry.grant_id in grant_ids:
+                raise ValueError(
+                    "grant attestations must not contain duplicate grant IDs"
+                )
+            grant_ids.add(entry.grant_id)
+        object.__setattr__(
+            self,
+            "entries",
+            tuple(
+                sorted(
+                    entries,
+                    key=lambda entry: entry.grant_id.encode("utf-8"),
+                )
+            ),
+        )
 
 
 def _canonical_identifiers(value: object, field_name: str) -> tuple[str, ...]:
@@ -836,6 +999,426 @@ class AuthorityValidationResult:
                 raise ValueError("invalid authority results require an offending grant")
             if self.verified_authority is not None:
                 raise ValueError("invalid authority results cannot carry verified authority")
+
+
+def _delegation_status_for_verification(
+    status: ArtifactVerificationStatus,
+) -> DelegationAuthenticationStatus | None:
+    if status is ArtifactVerificationStatus.VERIFIED:
+        return None
+    if status is ArtifactVerificationStatus.UNKNOWN_KEY:
+        return DelegationAuthenticationStatus.UNKNOWN_SIGNING_KEY
+    if status is ArtifactVerificationStatus.KEY_NOT_TRUSTED_FOR_PURPOSE:
+        return (
+            DelegationAuthenticationStatus
+            .KEY_NOT_TRUSTED_FOR_AUTHORITY_GRANT
+        )
+    if status in (
+        ArtifactVerificationStatus.DIGEST_MISMATCH,
+        ArtifactVerificationStatus.ARTIFACT_KIND_MISMATCH,
+    ):
+        return DelegationAuthenticationStatus.GRANT_ARTIFACT_MISMATCH
+    if status in (
+        ArtifactVerificationStatus.SIGNATURE_INVALID,
+        ArtifactVerificationStatus.PURPOSE_MISMATCH,
+        ArtifactVerificationStatus.SCHEME_UNSUPPORTED,
+    ):
+        return DelegationAuthenticationStatus.ATTESTATION_INVALID
+    raise ValueError("unsupported artifact verification status")
+
+
+@dataclass(frozen=True, slots=True)
+class GrantAuthenticationEvidence:
+    """Deterministic cryptographic-provenance evidence for one grant."""
+
+    grant_id: str
+    grantor: Principal
+    is_root: bool
+    root_principal_trusted: bool | None
+    signing_key_id: SigningKeyId | None
+    bound_principal: Principal | None
+    verification: ArtifactVerificationResult | None
+    status: DelegationAuthenticationStatus
+
+    def __post_init__(self) -> None:
+        _non_blank(self.grant_id, "authenticated grant identifier")
+        if type(self.grantor) is not Principal:
+            raise TypeError("grantor must be a Principal")
+        if type(self.is_root) is not bool:
+            raise TypeError("is_root must be a boolean")
+        if self.root_principal_trusted is not None and type(
+            self.root_principal_trusted
+        ) is not bool:
+            raise TypeError(
+                "root_principal_trusted must be a boolean or None"
+            )
+        if self.is_root != (self.root_principal_trusted is not None):
+            raise ValueError(
+                "root trust evidence must be present exactly for root grants"
+            )
+        if (
+            self.signing_key_id is not None
+            and type(self.signing_key_id) is not SigningKeyId
+        ):
+            raise TypeError("signing_key_id must be a SigningKeyId or None")
+        if (
+            self.bound_principal is not None
+            and type(self.bound_principal) is not Principal
+        ):
+            raise TypeError("bound_principal must be a Principal or None")
+        if (
+            self.verification is not None
+            and type(self.verification) is not ArtifactVerificationResult
+        ):
+            raise TypeError(
+                "verification must be an ArtifactVerificationResult or None"
+            )
+        if type(self.status) is not DelegationAuthenticationStatus:
+            raise TypeError(
+                "status must be a DelegationAuthenticationStatus"
+            )
+        if self.status in (
+            DelegationAuthenticationStatus.STRUCTURAL_AUTHORITY_INVALID,
+            DelegationAuthenticationStatus.UNKNOWN_GRANT_ATTESTATION,
+        ):
+            raise ValueError(
+                "aggregate-only status is invalid for per-grant evidence"
+            )
+
+        if self.status is DelegationAuthenticationStatus.MISSING_ATTESTATION:
+            if any(
+                value is not None
+                for value in (
+                    self.signing_key_id,
+                    self.bound_principal,
+                    self.verification,
+                )
+            ):
+                raise ValueError(
+                    "missing-attestation evidence cannot contain signer data"
+                )
+            return
+
+        if self.signing_key_id is None or self.verification is None:
+            raise ValueError(
+                "attested grant evidence requires signer and verification"
+            )
+        if self.signing_key_id != self.verification.attestation.key_id:
+            raise ValueError(
+                "signing key must equal the verification attestation key"
+            )
+
+        verification_failure = _delegation_status_for_verification(
+            self.verification.status
+        )
+        if verification_failure is not None:
+            if self.status is not verification_failure:
+                raise ValueError(
+                    "grant status does not match artifact verification"
+                )
+            return
+
+        if self.bound_principal != self.grantor:
+            expected = (
+                DelegationAuthenticationStatus
+                .SIGNER_KEY_NOT_BOUND_TO_GRANTOR
+            )
+        elif self.is_root and not self.root_principal_trusted:
+            expected = DelegationAuthenticationStatus.UNTRUSTED_ROOT_PRINCIPAL
+        else:
+            expected = DelegationAuthenticationStatus.AUTHENTICATED
+        if self.status is not expected:
+            raise ValueError(
+                "grant authentication status does not match its evidence"
+            )
+
+
+_AUTHENTICATED_DELEGATED_AUTHORITY_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class AuthenticatedDelegatedAuthority:
+    """Delegated authority with structural and cryptographic provenance."""
+
+    verified_authority: VerifiedAuthority
+    authority_validation_digest: Sha256Digest
+    grant_attestations_digest: Sha256Digest
+    trust_store_digest: Sha256Digest
+    principal_key_registry_digest: Sha256Digest
+    trusted_authority_roots_digest: Sha256Digest
+    grant_evidence: tuple[GrantAuthenticationEvidence, ...]
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "AuthenticatedDelegatedAuthority can only be created by "
+            "delegation authentication"
+        )
+
+    @classmethod
+    def _from_authentication(
+        cls,
+        *,
+        verified_authority: VerifiedAuthority,
+        authority_validation_digest: Sha256Digest,
+        grant_attestations_digest: Sha256Digest,
+        trust_store_digest: Sha256Digest,
+        principal_key_registry_digest: Sha256Digest,
+        trusted_authority_roots_digest: Sha256Digest,
+        grant_evidence: object,
+        _token: object,
+    ) -> AuthenticatedDelegatedAuthority:
+        if _token is not _AUTHENTICATED_DELEGATED_AUTHORITY_TOKEN:
+            raise TypeError(
+                "AuthenticatedDelegatedAuthority requires successful "
+                "delegation authentication"
+            )
+        if type(verified_authority) is not VerifiedAuthority:
+            raise TypeError(
+                "verified_authority must be a VerifiedAuthority"
+            )
+        for field_name, digest in (
+            ("authority_validation_digest", authority_validation_digest),
+            ("grant_attestations_digest", grant_attestations_digest),
+            ("trust_store_digest", trust_store_digest),
+            (
+                "principal_key_registry_digest",
+                principal_key_registry_digest,
+            ),
+            (
+                "trusted_authority_roots_digest",
+                trusted_authority_roots_digest,
+            ),
+        ):
+            if type(digest) is not Sha256Digest:
+                raise TypeError(f"{field_name} must be a Sha256Digest")
+        evidence = _typed_tuple(
+            grant_evidence,
+            GrantAuthenticationEvidence,
+            "grant_evidence",
+        )
+        if not evidence or any(
+            item.status is not DelegationAuthenticationStatus.AUTHENTICATED
+            for item in evidence
+        ):
+            raise ValueError(
+                "authenticated authority requires authenticated evidence "
+                "for every grant"
+            )
+
+        result = object.__new__(cls)
+        object.__setattr__(result, "verified_authority", verified_authority)
+        object.__setattr__(
+            result,
+            "authority_validation_digest",
+            authority_validation_digest,
+        )
+        object.__setattr__(
+            result,
+            "grant_attestations_digest",
+            grant_attestations_digest,
+        )
+        object.__setattr__(result, "trust_store_digest", trust_store_digest)
+        object.__setattr__(
+            result,
+            "principal_key_registry_digest",
+            principal_key_registry_digest,
+        )
+        object.__setattr__(
+            result,
+            "trusted_authority_roots_digest",
+            trusted_authority_roots_digest,
+        )
+        object.__setattr__(result, "grant_evidence", evidence)
+        return result
+
+
+_DELEGATION_AUTHENTICATION_RESULT_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class DelegationAuthenticationResult:
+    """Typed result of structural and cryptographic chain validation."""
+
+    status: DelegationAuthenticationStatus
+    authority_validation: AuthorityValidationResult
+    grant_attestations_digest: Sha256Digest
+    trust_store_digest: Sha256Digest
+    principal_key_registry_digest: Sha256Digest
+    trusted_authority_roots_digest: Sha256Digest
+    grant_evidence: tuple[GrantAuthenticationEvidence, ...]
+    offending_grant_id: str | None
+    authenticated_authority: AuthenticatedDelegatedAuthority | None
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "DelegationAuthenticationResult can only be created by "
+            "delegation authentication"
+        )
+
+    @classmethod
+    def _from_authentication(
+        cls,
+        *,
+        status: DelegationAuthenticationStatus,
+        authority_validation: AuthorityValidationResult,
+        grant_attestations_digest: Sha256Digest,
+        trust_store_digest: Sha256Digest,
+        principal_key_registry_digest: Sha256Digest,
+        trusted_authority_roots_digest: Sha256Digest,
+        grant_evidence: object,
+        offending_grant_id: str | None,
+        authenticated_authority: AuthenticatedDelegatedAuthority | None,
+        _token: object,
+    ) -> DelegationAuthenticationResult:
+        if _token is not _DELEGATION_AUTHENTICATION_RESULT_TOKEN:
+            raise TypeError(
+                "DelegationAuthenticationResult requires delegation "
+                "authentication"
+            )
+        if type(status) is not DelegationAuthenticationStatus:
+            raise TypeError(
+                "status must be a DelegationAuthenticationStatus"
+            )
+        if type(authority_validation) is not AuthorityValidationResult:
+            raise TypeError(
+                "authority_validation must be an AuthorityValidationResult"
+            )
+        for field_name, digest in (
+            ("grant_attestations_digest", grant_attestations_digest),
+            ("trust_store_digest", trust_store_digest),
+            (
+                "principal_key_registry_digest",
+                principal_key_registry_digest,
+            ),
+            (
+                "trusted_authority_roots_digest",
+                trusted_authority_roots_digest,
+            ),
+        ):
+            if type(digest) is not Sha256Digest:
+                raise TypeError(f"{field_name} must be a Sha256Digest")
+        evidence = _typed_tuple(
+            grant_evidence,
+            GrantAuthenticationEvidence,
+            "grant_evidence",
+        )
+        if offending_grant_id is not None:
+            _non_blank(offending_grant_id, "offending grant identifier")
+        if (
+            authenticated_authority is not None
+            and type(authenticated_authority)
+            is not AuthenticatedDelegatedAuthority
+        ):
+            raise TypeError(
+                "authenticated_authority must be an "
+                "AuthenticatedDelegatedAuthority or None"
+            )
+
+        authenticated = (
+            status is DelegationAuthenticationStatus.AUTHENTICATED
+        )
+        if authenticated != (authenticated_authority is not None):
+            raise ValueError(
+                "authenticated authority must be present exactly for "
+                "AUTHENTICATED"
+            )
+        if authenticated:
+            if authority_validation.status is not AuthorityValidationStatus.VALID:
+                raise ValueError(
+                    "authenticated delegation requires VALID authority"
+                )
+            if offending_grant_id is not None:
+                raise ValueError(
+                    "authenticated delegation cannot name an offending grant"
+                )
+            if not evidence or any(
+                item.status
+                is not DelegationAuthenticationStatus.AUTHENTICATED
+                for item in evidence
+            ):
+                raise ValueError(
+                    "authenticated result requires authenticated grant evidence"
+                )
+            if (
+                authenticated_authority.verified_authority
+                != authority_validation.verified_authority
+            ):
+                raise ValueError(
+                    "authenticated authority must preserve validation authority"
+                )
+            for authority_digest, result_digest in (
+                (
+                    authenticated_authority.grant_attestations_digest,
+                    grant_attestations_digest,
+                ),
+                (
+                    authenticated_authority.trust_store_digest,
+                    trust_store_digest,
+                ),
+                (
+                    authenticated_authority.principal_key_registry_digest,
+                    principal_key_registry_digest,
+                ),
+                (
+                    authenticated_authority.trusted_authority_roots_digest,
+                    trusted_authority_roots_digest,
+                ),
+            ):
+                if authority_digest != result_digest:
+                    raise ValueError(
+                        "authenticated authority trust-input digests must "
+                        "match the result"
+                    )
+            if authenticated_authority.grant_evidence != evidence:
+                raise ValueError(
+                    "authenticated authority must preserve grant evidence"
+                )
+        else:
+            if offending_grant_id is None:
+                raise ValueError(
+                    "failed delegation authentication requires an offending "
+                    "grant"
+                )
+            if (
+                status
+                is DelegationAuthenticationStatus.STRUCTURAL_AUTHORITY_INVALID
+                and authority_validation.status
+                is AuthorityValidationStatus.VALID
+            ):
+                raise ValueError(
+                    "structural failure requires invalid authority validation"
+                )
+            if (
+                status
+                is not DelegationAuthenticationStatus
+                .STRUCTURAL_AUTHORITY_INVALID
+                and authority_validation.status
+                is not AuthorityValidationStatus.VALID
+            ):
+                raise ValueError(
+                    "cryptographic failure requires structurally valid authority"
+                )
+
+        result = object.__new__(cls)
+        for field_name, value in (
+            ("status", status),
+            ("authority_validation", authority_validation),
+            ("grant_attestations_digest", grant_attestations_digest),
+            ("trust_store_digest", trust_store_digest),
+            (
+                "principal_key_registry_digest",
+                principal_key_registry_digest,
+            ),
+            (
+                "trusted_authority_roots_digest",
+                trusted_authority_roots_digest,
+            ),
+            ("grant_evidence", evidence),
+            ("offending_grant_id", offending_grant_id),
+            ("authenticated_authority", authenticated_authority),
+        ):
+            object.__setattr__(result, field_name, value)
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -1894,6 +2477,85 @@ class Decision:
                 )
 
 
+_TRUSTED_AUTHORIZATION_RESULT_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class TrustedAuthorizationResult:
+    """A policy Decision reached through authenticated trust wrappers."""
+
+    request_digest: Sha256Digest
+    policy_bundle_digest: Sha256Digest
+    trusted_policy_digest: Sha256Digest
+    verified_authority_digest: Sha256Digest
+    authenticated_authority_digest: Sha256Digest
+    decision: Decision
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "TrustedAuthorizationResult can only be created by trusted "
+            "authorization"
+        )
+
+    @classmethod
+    def _from_trusted_authorization(
+        cls,
+        *,
+        request_digest: Sha256Digest,
+        policy_bundle_digest: Sha256Digest,
+        trusted_policy_digest: Sha256Digest,
+        verified_authority_digest: Sha256Digest,
+        authenticated_authority_digest: Sha256Digest,
+        decision: Decision,
+        _token: object,
+    ) -> TrustedAuthorizationResult:
+        if _token is not _TRUSTED_AUTHORIZATION_RESULT_TOKEN:
+            raise TypeError(
+                "TrustedAuthorizationResult requires trusted authorization"
+            )
+        for field_name, digest in (
+            ("request_digest", request_digest),
+            ("policy_bundle_digest", policy_bundle_digest),
+            ("trusted_policy_digest", trusted_policy_digest),
+            ("verified_authority_digest", verified_authority_digest),
+            (
+                "authenticated_authority_digest",
+                authenticated_authority_digest,
+            ),
+        ):
+            if type(digest) is not Sha256Digest:
+                raise TypeError(f"{field_name} must be a Sha256Digest")
+        if type(decision) is not Decision:
+            raise TypeError("decision must be a Decision")
+        if decision.evidence.request_digest != request_digest:
+            raise ValueError("decision must bind the trusted request")
+        if decision.evidence.policy_bundle_digest != policy_bundle_digest:
+            raise ValueError("decision must bind the trusted policy bundle")
+        applicability = decision.evidence.authority_applicability
+        if (
+            applicability is None
+            or applicability.authority_digest != verified_authority_digest
+        ):
+            raise ValueError(
+                "trusted decision must bind the authenticated authority"
+            )
+
+        result = object.__new__(cls)
+        for field_name, value in (
+            ("request_digest", request_digest),
+            ("policy_bundle_digest", policy_bundle_digest),
+            ("trusted_policy_digest", trusted_policy_digest),
+            ("verified_authority_digest", verified_authority_digest),
+            (
+                "authenticated_authority_digest",
+                authenticated_authority_digest,
+            ),
+            ("decision", decision),
+        ):
+            object.__setattr__(result, field_name, value)
+        return result
+
+
 _DECISION_RECEIPT_TOKEN = object()
 
 
@@ -2480,3 +3142,159 @@ class ExecutionAuthorizationResult:
         ):
             object.__setattr__(result, field_name, value)
         return result
+
+
+_TRUSTED_EXECUTION_AUTHORIZATION_RESULT_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class TrustedExecutionAuthorizationResult:
+    """Trusted wrapper around fresh authenticated execution revalidation."""
+
+    status: TrustedExecutionAuthorizationStatus
+    current_request_digest: Sha256Digest
+    policy_bundle_digest: Sha256Digest
+    trusted_policy_digest: Sha256Digest
+    delegation_authentication: DelegationAuthenticationResult
+    execution_authorization: ExecutionAuthorizationResult | None
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "TrustedExecutionAuthorizationResult can only be created by "
+            "trusted execution revalidation"
+        )
+
+    @classmethod
+    def _from_trusted_revalidation(
+        cls,
+        *,
+        status: TrustedExecutionAuthorizationStatus,
+        current_request_digest: Sha256Digest,
+        policy_bundle_digest: Sha256Digest,
+        trusted_policy_digest: Sha256Digest,
+        delegation_authentication: DelegationAuthenticationResult,
+        execution_authorization: ExecutionAuthorizationResult | None,
+        _token: object,
+    ) -> TrustedExecutionAuthorizationResult:
+        if _token is not _TRUSTED_EXECUTION_AUTHORIZATION_RESULT_TOKEN:
+            raise TypeError(
+                "TrustedExecutionAuthorizationResult requires trusted "
+                "execution revalidation"
+            )
+        if type(status) is not TrustedExecutionAuthorizationStatus:
+            raise TypeError(
+                "status must be a TrustedExecutionAuthorizationStatus"
+            )
+        if type(current_request_digest) is not Sha256Digest:
+            raise TypeError("current_request_digest must be a Sha256Digest")
+        if type(policy_bundle_digest) is not Sha256Digest:
+            raise TypeError("policy_bundle_digest must be a Sha256Digest")
+        if type(trusted_policy_digest) is not Sha256Digest:
+            raise TypeError("trusted_policy_digest must be a Sha256Digest")
+        if (
+            type(delegation_authentication)
+            is not DelegationAuthenticationResult
+        ):
+            raise TypeError(
+                "delegation_authentication must be a "
+                "DelegationAuthenticationResult"
+            )
+        if (
+            execution_authorization is not None
+            and type(execution_authorization)
+            is not ExecutionAuthorizationResult
+        ):
+            raise TypeError(
+                "execution_authorization must be an "
+                "ExecutionAuthorizationResult or None"
+            )
+
+        authentication_succeeded = (
+            delegation_authentication.status
+            is DelegationAuthenticationStatus.AUTHENTICATED
+        )
+        if not authentication_succeeded:
+            expected = (
+                TrustedExecutionAuthorizationStatus
+                .DELEGATION_AUTHENTICATION_FAILED
+            )
+            if execution_authorization is not None:
+                raise ValueError(
+                    "failed delegation authentication cannot carry "
+                    "execution revalidation"
+                )
+        else:
+            if execution_authorization is None:
+                raise ValueError(
+                    "authenticated delegation requires execution revalidation"
+                )
+            expected = (
+                TrustedExecutionAuthorizationStatus.AUTHORIZED
+                if execution_authorization.status
+                is ExecutionAuthorizationStatus.AUTHORIZED
+                else TrustedExecutionAuthorizationStatus
+                .EXECUTION_REVALIDATION_FAILED
+            )
+            if (
+                execution_authorization.current_request_digest
+                != current_request_digest
+            ):
+                raise ValueError(
+                    "execution revalidation must bind the current request"
+                )
+            if (
+                execution_authorization.current_policy_bundle_digest
+                != policy_bundle_digest
+            ):
+                raise ValueError(
+                    "execution revalidation must bind the trusted policy"
+                )
+            if (
+                execution_authorization.authority_validation
+                != delegation_authentication.authority_validation
+            ):
+                raise ValueError(
+                    "execution revalidation must use the authenticated "
+                    "delegation validation"
+                )
+        if status is not expected:
+            raise ValueError(
+                "trusted execution status does not match nested evidence"
+            )
+
+        result = object.__new__(cls)
+        object.__setattr__(result, "status", status)
+        object.__setattr__(
+            result,
+            "current_request_digest",
+            current_request_digest,
+        )
+        object.__setattr__(
+            result,
+            "policy_bundle_digest",
+            policy_bundle_digest,
+        )
+        object.__setattr__(
+            result,
+            "trusted_policy_digest",
+            trusted_policy_digest,
+        )
+        object.__setattr__(
+            result,
+            "delegation_authentication",
+            delegation_authentication,
+        )
+        object.__setattr__(
+            result,
+            "execution_authorization",
+            execution_authorization,
+        )
+        return result
+
+    @property
+    def execution_permit(self) -> ExecutionPermit | None:
+        """Return the nested permit when trusted revalidation authorizes."""
+
+        if self.execution_authorization is None:
+            return None
+        return self.execution_authorization.execution_permit

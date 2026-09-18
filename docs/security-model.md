@@ -237,6 +237,20 @@ Signature validity, signer trust, and signer authorization are separate
 checks. A self-signed artifact, or an artifact signed by a trusted key for a
 different purpose, MUST NOT cross a trusted-artifact boundary.
 
+### INV-016 — Cryptographic and Logical Delegation Provenance Must Agree
+
+A structurally valid delegation chain is not authenticated authority. Every
+grant in a trusted delegation path MUST have an exact detached attestation
+whose signing key is trusted for `AUTHORITY_GRANT` and explicitly bound to the
+grant's logical grantor. The root grantor MUST also be an exact member of the
+supplied trusted-authority-root set.
+
+A trusted but unrelated key cannot issue on another Principal's behalf, and a
+Principal that owns a valid delegation key cannot originate a new root unless
+that Principal is separately trusted as a root. Cryptographic signatures MUST
+NOT rescue broken provenance, widened scope, revocation, or logical-time
+invalidity.
+
 ---
 
 ## Trust Boundary
@@ -268,10 +282,14 @@ detached attestation can authenticate issuance relative to the caller-supplied
 trust store, but neither the permit nor its attestation provides
 non-repudiation or distributed single-use consumption.
 
-The trust store is explicit caller-supplied security state. The core performs
-no network key discovery, platform trust lookup, external PKI validation, or
-principal-to-key inference. In particular, a valid `AuthorityGrant`
-attestation does not yet prove that its signing key belongs to the grantor.
+The trust store, Principal/key registry, and trusted-authority-root set are
+explicit caller-supplied security state. The core performs no network key
+discovery, platform trust lookup, external PKI validation, or identifier-based
+Principal/key inference. A bare verified `AuthorityGrant` attestation proves
+only key issuance and purpose trust. The ADR-0011 authenticated-delegation
+boundary additionally requires configured grantor/key agreement and explicit
+root trust, but those configurations remain trust assertions rather than DID,
+JWT, certificate, IdP, or human-identity proof.
 
 ---
 

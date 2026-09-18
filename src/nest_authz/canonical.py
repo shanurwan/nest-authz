@@ -20,6 +20,7 @@ from .domain import (
     ApproverAuthorizationResult,
     ApproverAuthorizationStatus,
     ApproverSubjectPrincipalBinding,
+    AuthenticatedDelegatedAuthority,
     AuthorityContext,
     AuthorityApplicabilityResult,
     AuthorityApplicabilityStatus,
@@ -37,10 +38,15 @@ from .domain import (
     DecisionEvidence,
     DecisionReceipt,
     DelegationChain,
+    DelegationAuthenticationResult,
+    DelegationAuthenticationStatus,
     Ed25519PublicKey,
     ExecutionAuthorizationResult,
     ExecutionAuthorizationStatus,
     ExecutionPermit,
+    GrantAttestation,
+    GrantAttestationSet,
+    GrantAuthenticationEvidence,
     Obligation,
     Outcome,
     FieldNamespace,
@@ -49,6 +55,8 @@ from .domain import (
     PolicyBundle,
     PendingApproval,
     Principal,
+    PrincipalKeyBinding,
+    PrincipalKeyRegistry,
     Reason,
     RequestContext,
     Resource,
@@ -65,6 +73,10 @@ from .domain import (
     SubjectAuthorityBindingStatus,
     SubjectPrincipalBinding,
     TrustedKey,
+    TrustedAuthorityRoots,
+    TrustedAuthorizationResult,
+    TrustedExecutionAuthorizationResult,
+    TrustedExecutionAuthorizationStatus,
     TrustedPolicyBundle,
     TrustStore,
     VerifiedAuthority,
@@ -311,6 +323,24 @@ def _encode_domain(value: object) -> bytes:
             "nest-authz/principal@1",
             (("identifier", _encode_string(value.identifier)),),
         )
+    if value_type is PrincipalKeyBinding:
+        return _encode_record(
+            "nest-authz/principal-key-binding@1",
+            (
+                ("principal", _encode_domain(value.principal)),
+                ("key_id", _encode_domain(value.key_id)),
+            ),
+        )
+    if value_type is PrincipalKeyRegistry:
+        return _encode_record(
+            "nest-authz/principal-key-registry@1",
+            (("bindings", _encode_sequence(value.bindings)),),
+        )
+    if value_type is TrustedAuthorityRoots:
+        return _encode_record(
+            "nest-authz/trusted-authority-roots@1",
+            (("principals", _encode_sequence(value.principals)),),
+        )
     if value_type is SubjectPrincipalBinding:
         return _encode_record(
             "nest-authz/subject-principal-binding@1",
@@ -357,6 +387,19 @@ def _encode_domain(value: object) -> bytes:
             "nest-authz/delegation-chain@1",
             (("grants", _encode_sequence(value.grants)),),
         )
+    if value_type is GrantAttestation:
+        return _encode_record(
+            "nest-authz/grant-attestation@1",
+            (
+                ("grant_id", _encode_string(value.grant_id)),
+                ("attestation", _encode_domain(value.attestation)),
+            ),
+        )
+    if value_type is GrantAttestationSet:
+        return _encode_record(
+            "nest-authz/grant-attestation-set@1",
+            (("entries", _encode_sequence(value.entries)),),
+        )
     if value_type is RevocationSet:
         return _encode_record(
             "nest-authz/revocation-set@1",
@@ -401,6 +444,104 @@ def _encode_domain(value: object) -> bytes:
                 (
                     "verified_authority",
                     _encode_optional_domain(value.verified_authority),
+                ),
+            ),
+        )
+    if value_type is DelegationAuthenticationStatus:
+        return _encode_record(
+            "nest-authz/delegation-authentication-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is GrantAuthenticationEvidence:
+        return _encode_record(
+            "nest-authz/grant-authentication-evidence@1",
+            (
+                ("grant_id", _encode_string(value.grant_id)),
+                ("grantor", _encode_domain(value.grantor)),
+                ("is_root", _encode_boolean(value.is_root)),
+                (
+                    "root_principal_trusted",
+                    _encode_scalar(value.root_principal_trusted),
+                ),
+                (
+                    "signing_key_id",
+                    _encode_optional_domain(value.signing_key_id),
+                ),
+                (
+                    "bound_principal",
+                    _encode_optional_domain(value.bound_principal),
+                ),
+                (
+                    "verification",
+                    _encode_optional_domain(value.verification),
+                ),
+                ("status", _encode_domain(value.status)),
+            ),
+        )
+    if value_type is AuthenticatedDelegatedAuthority:
+        return _encode_record(
+            "nest-authz/authenticated-delegated-authority@1",
+            (
+                (
+                    "verified_authority",
+                    _encode_domain(value.verified_authority),
+                ),
+                (
+                    "authority_validation_digest",
+                    _encode_domain(value.authority_validation_digest),
+                ),
+                (
+                    "grant_attestations_digest",
+                    _encode_domain(value.grant_attestations_digest),
+                ),
+                (
+                    "trust_store_digest",
+                    _encode_domain(value.trust_store_digest),
+                ),
+                (
+                    "principal_key_registry_digest",
+                    _encode_domain(value.principal_key_registry_digest),
+                ),
+                (
+                    "trusted_authority_roots_digest",
+                    _encode_domain(value.trusted_authority_roots_digest),
+                ),
+                ("grant_evidence", _encode_sequence(value.grant_evidence)),
+            ),
+        )
+    if value_type is DelegationAuthenticationResult:
+        return _encode_record(
+            "nest-authz/delegation-authentication-result@1",
+            (
+                ("status", _encode_domain(value.status)),
+                (
+                    "authority_validation",
+                    _encode_domain(value.authority_validation),
+                ),
+                (
+                    "grant_attestations_digest",
+                    _encode_domain(value.grant_attestations_digest),
+                ),
+                (
+                    "trust_store_digest",
+                    _encode_domain(value.trust_store_digest),
+                ),
+                (
+                    "principal_key_registry_digest",
+                    _encode_domain(value.principal_key_registry_digest),
+                ),
+                (
+                    "trusted_authority_roots_digest",
+                    _encode_domain(value.trusted_authority_roots_digest),
+                ),
+                ("grant_evidence", _encode_sequence(value.grant_evidence)),
+                (
+                    "offending_grant_id",
+                    _encode_scalar(value.offending_grant_id),
+                ),
+                (
+                    "authenticated_authority",
+                    _encode_optional_domain(value.authenticated_authority),
                 ),
             ),
         )
@@ -662,6 +803,30 @@ def _encode_domain(value: object) -> bytes:
                 ("verification", _encode_domain(value.verification)),
             ),
         )
+    if value_type is TrustedAuthorizationResult:
+        return _encode_record(
+            "nest-authz/trusted-authorization-result@1",
+            (
+                ("request_digest", _encode_domain(value.request_digest)),
+                (
+                    "policy_bundle_digest",
+                    _encode_domain(value.policy_bundle_digest),
+                ),
+                (
+                    "trusted_policy_digest",
+                    _encode_domain(value.trusted_policy_digest),
+                ),
+                (
+                    "verified_authority_digest",
+                    _encode_domain(value.verified_authority_digest),
+                ),
+                (
+                    "authenticated_authority_digest",
+                    _encode_domain(value.authenticated_authority_digest),
+                ),
+                ("decision", _encode_domain(value.decision)),
+            ),
+        )
     if value_type is RuleEvaluation:
         return _encode_record(
             "nest-authz/rule-evaluation@1",
@@ -863,6 +1028,38 @@ def _encode_domain(value: object) -> bytes:
                 (
                     "execution_permit",
                     _encode_optional_domain(value.execution_permit),
+                ),
+            ),
+        )
+    if value_type is TrustedExecutionAuthorizationStatus:
+        return _encode_record(
+            "nest-authz/trusted-execution-authorization-status@1",
+            (("value", _encode_string(value.value)),),
+        )
+    if value_type is TrustedExecutionAuthorizationResult:
+        return _encode_record(
+            "nest-authz/trusted-execution-authorization-result@1",
+            (
+                ("status", _encode_domain(value.status)),
+                (
+                    "current_request_digest",
+                    _encode_domain(value.current_request_digest),
+                ),
+                (
+                    "policy_bundle_digest",
+                    _encode_domain(value.policy_bundle_digest),
+                ),
+                (
+                    "trusted_policy_digest",
+                    _encode_domain(value.trusted_policy_digest),
+                ),
+                (
+                    "delegation_authentication",
+                    _encode_domain(value.delegation_authentication),
+                ),
+                (
+                    "execution_authorization",
+                    _encode_optional_domain(value.execution_authorization),
                 ),
             ),
         )
